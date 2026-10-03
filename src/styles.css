@@ -1,5 +1,51 @@
 @import '@fontsource-variable/golos-text';
 
+.ai-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: #eef0eb;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.ai-score.strong {
+  background: #e0eee2;
+  color: #245c43;
+}
+.job-ai-summary {
+  margin: 10px 21px 0 77px;
+  color: #586459;
+  line-height: 1.6;
+}
+.ai-review {
+  padding: 18px;
+  background: #f2f6ef;
+  border-radius: 10px;
+}
+.ai-review h3,
+.ai-review-links,
+.ai-review-links a {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.ai-review-context {
+  color: #788375;
+  font-size: 12px;
+}
+.ai-review-summary {
+  font-weight: 600;
+  line-height: 1.6;
+}
+.ai-review-links {
+  flex-wrap: wrap;
+  margin-top: 12px;
+  gap: 16px;
+  color: #28624d;
+}
+
 :root {
   font-family:
     'Golos Text Variable',
@@ -209,13 +255,14 @@ small {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-left: 15px;
-  font-size: 34px;
+  padding-left: 5px;
+  font-size: 21px;
   font-weight: 750;
-  letter-spacing: -1.8px;
+  letter-spacing: -0.8px;
   line-height: 1;
 }
 .brand-mark {
+  flex-shrink: 0;
   height: 38px;
   width: 38px;
   display: grid;
@@ -224,9 +271,6 @@ small {
   color: #e1edc9;
   border-radius: 11px;
   transform: rotate(-3deg);
-}
-.brand-dot {
-  color: #8ca574;
 }
 .nav-item {
   width: 100%;
@@ -2169,7 +2213,13 @@ h1 {
     padding-right: 13px;
   }
   .brand {
-    font-size: 31px;
+    gap: 7px;
+    padding-left: 0;
+    font-size: 17px;
+  }
+  .brand-mark {
+    width: 32px;
+    height: 32px;
   }
   .sidebar-bottom {
     padding-left: 3px;
@@ -2396,6 +2446,9 @@ h1 {
   }
   .job-main {
     padding: 17px 14px 0;
+  }
+  .job-ai-summary {
+    margin: 12px 14px 0;
   }
   .job-content {
     min-width: 0;

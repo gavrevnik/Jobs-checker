@@ -4,6 +4,6 @@ data
 package-lock.json
 artifacts
 .runtime
-Scout.app
+Jobs checker.app
 # Generated, compact map data.
 src/data/geography.json

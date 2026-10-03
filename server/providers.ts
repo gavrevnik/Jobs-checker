@@ -1,6 +1,8 @@
 import he from 'he';
-import { jobSchema, type JobInput, type Source } from '../shared/model.js';
+import { jobSchema, type JobInput, type Source, type Profile } from '../shared/model.js';
 import type { Store } from './store.js';
+import { acceptsJob, searchSchema, boardProviders } from '../shared/source-tools.js';
+import { meteredFetcher, providerEnabled, safeProviderError } from './provider-io.js';
 
 export function plain(value = '') {
   return he
@@ -106,6 +108,64 @@ export function normalize(provider: Source['provider'], raw: any, source: Source
       salaryPeriod: period(salary?.interval),
     };
   }
+  if (provider === 'smartrecruiters')
+    result = {
+      ...result,
+      title: plain(raw.name || ''),
+      company: raw.company?.name || source.name,
+      url:
+        raw.postingUrl ||
+        `https://jobs.smartrecruiters.com/${encodeURIComponent(source.board)}/${encodeURIComponent(raw.id)}`,
+      location: [raw.location?.city, raw.location?.region, raw.location?.country]
+        .filter(Boolean)
+        .join(', '),
+      workMode: raw.location?.remote === true ? 'remote' : 'unknown',
+      description: Object.values(raw.jobAd?.sections || {})
+        .map((section: any) => plain(section.text))
+        .filter(Boolean)
+        .join('\n\n'),
+      tags: [raw.department?.label, raw.function?.label, raw.typeOfEmployment?.label].filter(
+        Boolean,
+      ),
+      publishedAt: raw.releasedDate || '',
+    };
+  if (provider === 'arbeitnow')
+    result = {
+      ...result,
+      externalId: raw.slug,
+      company: raw.company_name,
+      url: raw.url,
+      location: raw.location || '',
+      workMode: raw.remote === true ? 'remote' : 'unknown',
+      description: plain(raw.description),
+      tags: (raw.tags || []).slice(0, 40),
+      publishedAt: raw.created_at ? new Date(raw.created_at * 1000).toISOString() : '',
+    };
+  if (provider === 'jooble')
+    result = {
+      ...result,
+      company: raw.company || 'Компания не указана',
+      url: raw.link,
+      location: raw.location || '',
+      description: plain(raw.snippet),
+      salaryText: raw.salary || '',
+      // updated is not a publication date.
+    };
+  if (provider === 'serpapi')
+    result = {
+      ...result,
+      externalId: raw.job_id,
+      company: raw.company_name || 'Компания не указана',
+      url:
+        (raw.apply_options || []).find((o: any) => /^https?:\/\//i.test(o.link))?.link ||
+        raw.share_link ||
+        '',
+      location: raw.location || '',
+      description: plain(raw.description),
+      workMode: raw.detected_extensions?.work_from_home ? 'remote' : 'unknown',
+      salaryText: raw.detected_extensions?.salary || '',
+      // Relative posted_at strings are not an exact publication date.
+    };
   if (provider === 'adzuna') {
     // Do not silently treat Adzuna's predicted salaries as employer-provided compensation.
     result = {
@@ -126,13 +186,19 @@ export function normalize(provider: Source['provider'], raw: any, source: Source
 }
 
 export type Fetcher = typeof fetch;
-export async function fetchJobs(source: Source, fetcher: Fetcher = fetch): Promise<JobInput[]> {
-  const get = async (url: string) => {
+export async function fetchJobs(
+  source: Source,
+  fetcher: Fetcher = fetch,
+  options: { maxPages?: number; location?: string } = {},
+): Promise<JobInput[]> {
+  const get = async (url: string, payload?: object) => {
     const response = await fetcher(url, {
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'ScoutLocal/0.1 (personal job tracker)',
+        ...(payload ? { 'Content-Type': 'application/json' } : {}),
+        'User-Agent': 'JobsChecker/0.1 (personal job tracker)',
       },
+      ...(payload ? { method: 'POST', body: JSON.stringify(payload) } : {}),
       signal: AbortSignal.timeout(25000),
       redirect: 'error',
     });
@@ -178,12 +244,16 @@ export async function fetchJobs(source: Source, fetcher: Fetcher = fetch): Promi
   if (source.provider === 'adzuna') {
     if (!process.env.ADZUNA_APP_ID || !process.env.ADZUNA_APP_KEY)
       throw new Error('Добавьте ADZUNA_APP_ID и ADZUNA_APP_KEY в .env и перезапустите приложение');
-    for (let page = 1; page <= 3; page++) {
+    if (!source.country) throw new Error('Для Adzuna укажите country: двухбуквенный код рынка');
+    for (let page = 1; page <= (options.maxPages ?? 3); page++) {
       const params = new URLSearchParams({
         app_id: process.env.ADZUNA_APP_ID,
         app_key: process.env.ADZUNA_APP_KEY,
         results_per_page: '50',
         what: source.query,
+        ...(options.location || source.location
+          ? { where: options.location || source.location }
+          : {}),
         sort_by: 'date',
         'content-type': 'application/json',
       });
@@ -193,6 +263,75 @@ export async function fetchJobs(source: Source, fetcher: Fetcher = fetch): Promi
       if (!Array.isArray(data.results)) throw new Error('Неожиданный формат ответа Adzuna');
       rows.push(...data.results);
       if (data.results.length < 50) break;
+    }
+  }
+  if (source.provider === 'smartrecruiters') {
+    for (let offset = 0; offset < 10000; offset += 100) {
+      const data = await get(
+        `https://api.smartrecruiters.com/v1/companies/${board}/postings?limit=100&offset=${offset}`,
+      );
+      if (!Array.isArray(data.content) || !Number.isFinite(data.totalFound))
+        throw new Error('Неожиданный формат ответа SmartRecruiters');
+      rows.push(...data.content);
+      if (rows.length >= data.totalFound) break;
+      if (!data.content.length || offset === 9900)
+        throw new Error('Неполный список SmartRecruiters');
+    }
+  }
+  if (source.provider === 'arbeitnow') {
+    for (let page = 1; page <= (options.maxPages ?? 1); page++) {
+      const data = await get(`https://www.arbeitnow.com/api/job-board-api?page=${page}`);
+      if (!Array.isArray(data.data)) throw new Error('Неожиданный формат ответа Arbeitnow');
+      rows.push(...data.data);
+      if (!data.links?.next) break;
+    }
+  }
+  if (source.provider === 'serpapi') {
+    if (!process.env.SERPAPI_API_KEY) throw new Error('Добавьте SERPAPI_API_KEY в .env');
+    if (!source.query) throw new Error('Укажите ключевые слова для Google Jobs');
+    let token = '';
+    for (let page = 1; page <= (options.maxPages ?? 1); page++) {
+      const params = new URLSearchParams({
+        engine: 'google_jobs',
+        api_key: process.env.SERPAPI_API_KEY,
+        q: source.query,
+        ...(source.country ? { gl: source.country } : {}),
+        ...(options.location || source.location
+          ? { location: options.location || source.location }
+          : {}),
+        ...(token ? { next_page_token: token } : {}),
+      });
+      const data = await get(`https://serpapi.com/search.json?${params}`);
+      if (!Array.isArray(data.jobs_results)) {
+        if (data.search_information?.jobs_results_state === 'Fully empty') break;
+        throw new Error('Неожиданный формат ответа SerpAPI');
+      }
+      rows.push(...data.jobs_results);
+      token = data.serpapi_pagination?.next_page_token || '';
+      if (!token) break;
+    }
+  }
+  if (source.provider === 'jooble') {
+    if (!process.env.JOOBLE_API_KEY) throw new Error('Добавьте JOOBLE_API_KEY в .env');
+    const configuredCountry = process.env.JOOBLE_COUNTRY?.toLowerCase();
+    if (!configuredCountry || source.country !== configuredCountry)
+      throw new Error('Укажите country, совпадающий с JOOBLE_COUNTRY для выданного ключа');
+    const host = process.env.JOOBLE_HOST || 'jooble.org';
+    if (!/^(?:[a-z]{2}\.)?jooble\.org$/.test(host))
+      throw new Error('JOOBLE_HOST должен быть доменом Jooble');
+    for (let page = 1; page <= (options.maxPages ?? 1); page++) {
+      const data = await get(
+        `https://${host}/api/${encodeURIComponent(process.env.JOOBLE_API_KEY)}`,
+        {
+          keywords: source.query,
+          location: options.location || source.location || '',
+          page: String(page),
+          ResultOnPage: 20,
+        },
+      );
+      if (!Array.isArray(data.jobs)) throw new Error('Неожиданный формат ответа Jooble');
+      rows.push(...data.jobs);
+      if (data.jobs.length < 20) break;
     }
   }
   if (rows.length > 10000) throw new Error('Источник слишком большой: более 10 000 вакансий');
@@ -219,7 +358,12 @@ export class SyncService {
     try {
       const sources = this.store
         .list<Source>('sources')
-        .filter((s) => s.enabled && (!sourceId || sourceId === s.id));
+        .filter(
+          (s) =>
+            s.enabled &&
+            providerEnabled(this.store, s.provider) &&
+            (!sourceId || sourceId === s.id),
+        );
       for (const source of sources) {
         const cooldown = source.provider === 'remotive' ? 6 * 3600000 : 15 * 60000;
         const last = source.lastSync && new Date(source.lastSync).getTime();
@@ -240,11 +384,39 @@ export class SyncService {
         }
         source.lastAttempt = new Date().toISOString();
         this.store.put('sources', source);
+        const budget = { used: 0, limit: 30, cacheHits: 0, observedAt: '' };
         try {
-          const jobs = await fetchJobs(source, this.fetcher);
+          const jobs = await fetchJobs(
+            source,
+            meteredFetcher(this.store, source.provider, budget, this.fetcher),
+          );
+          const profile = source.profileId
+            ? this.store.get<Profile>('profiles', source.profileId)
+            : undefined;
+          if (source.profileId && !profile) throw new Error('Профиль не найден');
+          const selected = profile
+            ? jobs.filter((job) => acceptsJob(job, searchSchema.parse({}), profile))
+            : jobs;
           let added = 0;
           this.store.transaction(() => {
-            for (const job of jobs) if (this.store.addJob(job, source.id, true).created) added++;
+            added = this.store.ingestJobs(
+              selected,
+              source.id,
+              boardProviders.includes(source.provider) && !budget.cacheHits ? jobs : undefined,
+              budget.observedAt,
+            ).added;
+            this.store.recordRun({
+              provider: source.provider,
+              sourceId: source.id,
+              kind: 'sync',
+              query: source.query,
+              received: jobs.length,
+              matched: selected.length,
+              added,
+              requests: budget.used,
+              cached: budget.cacheHits > 0,
+              error: '',
+            });
             this.store.put('sources', {
               ...source,
               lastSync: new Date().toISOString(),
@@ -254,11 +426,19 @@ export class SyncService {
           });
           results.push({ id: source.id, name: source.name, added, total: jobs.length });
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Ошибка соединения';
-          // Fetch errors may embed request URLs with API credentials; never return them.
-          const safeMessage = /app_key|app_id|https?:\/\//i.test(message)
-            ? 'Не удалось подключиться к источнику'
-            : message.slice(0, 500);
+          const safeMessage = safeProviderError(error);
+          this.store.recordRun({
+            provider: source.provider,
+            sourceId: source.id,
+            kind: 'sync',
+            query: source.query,
+            received: 0,
+            matched: 0,
+            added: 0,
+            requests: budget.used,
+            cached: budget.cacheHits > 0,
+            error: safeMessage,
+          });
           this.store.put('sources', { ...source, error: safeMessage });
           results.push({
             id: source.id,

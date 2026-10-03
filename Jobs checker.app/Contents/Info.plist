@@ -5,17 +5,17 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>ru</string>
     <key>CFBundleDisplayName</key>
-    <string>Scout</string>
+    <string>Jobs checker</string>
     <key>CFBundleExecutable</key>
-    <string>Scout</string>
+    <string>Jobs checker</string>
     <key>CFBundleIdentifier</key>
-    <string>local.jobs-checker.scout</string>
+    <string>local.jobs-checker</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Scout</string>
+    <string>Jobs checker</string>
     <key>CFBundleIconFile</key>
-    <string>Scout</string>
+    <string>Jobs checker</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

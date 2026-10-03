@@ -1,5 +1,7 @@
 # Локальный API
 
+`PATCH /api/jobs/:id` поддерживает AI-оценку: `aiScore` (0–10/null), `aiSummary`, `aiReason`, `aiProfileId`, `aiReviewedAt`, `aiEvidenceUrls`. Она сохраняется отдельно от автоматического совпадения с фильтрами; источники её не пересчитывают. `POST /api/source-tools/search` принимает `externalIds` для записи только выбранных после исследования публикаций.
+
 Базовый адрес: `http://127.0.0.1:4317/api`. Для записи обязателен `Content-Type: application/json`. Чужие Origin и Host отклоняются. Нет CORS-доступа из сторонних сайтов. Авторизация не нужна: сервер предназначен для одного пользователя на loopback.
 
 | Метод  | Путь              | Назначение                                                   |
@@ -54,3 +56,24 @@
 В JSON импортируется объект с массивами `companies`, `jobs`, опционально `profiles` и `sources`. Пустые массивы разрешены, но нужна хотя бы одна сущность. До 5 000 вакансий и 5 000 компаний, до 20 МБ на запрос. Неизвестные поля игнорируются. При импорте экспорта также сохраняются история и даты вакансий, восстанавливается привязка к импортированным источникам. ID новых записей генерируются локально.
 
 Сервер не получает произвольные URL для скачивания: хосты API заданы в коде, параметр `board` — короткий идентификатор. URL источника из интерфейса преобразуется в идентификатор до запроса. Внешние описания отображаются текстом. API-ключи Adzuna остаются в переменных окружения сервера.
+
+## Источники и API tools
+
+| Метод | Путь                          | Назначение                                                                                                     |
+| ----- | ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| GET   | `/source-tools`               | Каталог, состояние адаптеров, имена недостающих ключей, локальные квоты, доски, наблюдения и последние запуски |
+| PATCH | `/source-tools/providers/:id` | `{ "enabled": false }` — отключить адаптер для UI, sync и MCP                                                  |
+| POST  | `/source-tools/search`        | План/поиск; схема `searchSchema` в `shared/source-tools.ts`                                                    |
+| POST  | `/source-tools/boards`        | Регистрация ATS-доски; provider, name, board; опционально companyId/profileId/region/monitoring/intervalHours  |
+| POST  | `/source-tools/monitor`       | Due-доски; sourceIds, execute=false, maxRequests=30                                                            |
+| POST  | `/source-tools/enrich`        | SmartRecruiters: jobId, execute=false; максимум один запрос деталей                                            |
+| POST  | `/source-tools/web-plan`      | Сформировать web-search запросы по фильтрам, без внешнего вызова                                               |
+| POST  | `/source-tools/ats`           | query, stage, limit — чтение ATS и наблюдений                                                                  |
+
+`search`: providers, sourceIds, profileId, keywords, exclude, locations, workMode, seniority, minSalary, currency, salaryPeriod, country, location, maxAgeDays, includeUnknownDate, maxPages, maxRequests, maxItems, execute, store. По умолчанию execute=false и store=false. Примеры и точная семантика в [MCP.md](MCP.md).
+
+Провайдеры: greenhouse, lever, ashby, smartrecruiters, arbeitnow, remotive, adzuna, serpapi, jooble. Новые записи страны больше не получают GB автоматически: country передаётся явно, для Adzuna/Jooble необходим. Существующие значения в базе сохраняются.
+
+Состояние загрузки общее для операций источников; конфликтующий вызов возвращает 409. Провайдерные ошибки изолируются внутри результата поиска. При пагинации, оборванной лимитом, частичная выборка этого провайдера не записывается. Неподдерживаемый идентификатор доски/URL отклоняется; внешние HTTP-хосты заданы адаптером.
+
+SQLite дополнена таблицами provider_requests/provider_cache/source_runs/job_observations; миграция создаёт только новые структуры. JSON-экспорт не содержит кэш, журнал запросов и наблюдения; полная резервная копия — SQLite. Импорт экспортированных досок переназначает ID компаний/профилей на локальные.

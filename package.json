@@ -1,5 +1,5 @@
 {
-  "name": "scout-local",
+  "name": "jobs-checker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -15,10 +15,15 @@
     "sources:check": "node --import tsx scripts/check-sources.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:http": "node --import tsx scripts/check-http.ts"
+    "test:http": "node --import tsx scripts/check-http.ts",
+    "mcp": "node --import tsx scripts/jobs-mcp.ts",
+    "tools": "node --import tsx scripts/jobs-tool.ts",
+    "test:mcp": "node --import tsx scripts/check-mcp.ts",
+    "test:providers:live": "node --import tsx scripts/check-provider-tools.ts"
   },
   "dependencies": {
     "@fontsource-variable/golos-text": "^5.3.0",
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "dotenv": "^16.6.1",
     "express": "^5.1.0",
     "he": "^1.2.0",

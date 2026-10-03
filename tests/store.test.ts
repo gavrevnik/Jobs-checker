@@ -17,6 +17,60 @@ afterEach(() => {
 const input = { title: 'Engineer', company: 'Acme', url: 'https://example.com/jobs/1' };
 
 describe('Persistent local data', () => {
+  it('adopts a verified ATS source for an imported post without a second card', () => {
+    const store = memory();
+    const url = 'https://jobs.smartrecruiters.com/Acme/12345-readable-title';
+    const { job } = store.addJob({ ...input, url, source: 'import', notes: 'My research' });
+    store.updateJob(job.id, { stage: 'saved' });
+    const result = store.addJob(
+      {
+        ...input,
+        url: 'https://jobs.smartrecruiters.com/Acme/12345',
+        source: 'smartrecruiters',
+        externalId: '12345',
+        description: 'Fresh official details',
+      },
+      'verified-board',
+      true,
+    );
+    expect(result.created).toBe(false);
+    expect(result.job).toMatchObject({
+      id: job.id,
+      sourceId: 'verified-board',
+      source: 'smartrecruiters',
+      stage: 'saved',
+      notes: 'My research',
+      description: 'Fresh official details',
+    });
+    expect(store.list('jobs')).toHaveLength(1);
+    expect(
+      canonicalUrl('https://job-boards.greenhouse.io/acme/jobs/123?gh_jid=123&gh_src=feed'),
+    ).toBe('https://job-boards.greenhouse.io/acme/jobs/123');
+  });
+  it('validates and preserves an AI assessment during source refresh and workflow edits', () => {
+    const store = memory();
+    const { job } = store.addJob(input, 'board', true);
+    expect(job.aiScore).toBeNull();
+    const assessment = {
+      aiScore: 8.5,
+      aiSummary: 'Product ownership; visa unknown',
+      aiReason: 'Strong experimentation fit.',
+      aiProfileId: 'profile',
+      aiReviewedAt: '2026-10-03T00:00:00Z',
+      aiEvidenceUrls: [input.url],
+    };
+    store.updateJob(job.id, { ...assessment, notes: 'Keep my note' });
+    store.addJob({ ...input, description: 'Refreshed description' }, 'board', true);
+    expect(store.get<Job>('jobs', job.id)).toMatchObject({
+      ...assessment,
+      description: 'Refreshed description',
+      notes: 'Keep my note',
+    });
+    store.updateJob(job.id, { stage: 'saved' });
+    expect(store.get<Job>('jobs', job.id)?.aiScore).toBe(8.5);
+    expect(() => store.updateJob(job.id, { aiScore: 11 })).toThrow();
+    expect(() => store.updateJob(job.id, { aiEvidenceUrls: ['javascript:alert(1)'] })).toThrow();
+  });
   it('reads old company rows with safe defaults and round-trips enrichment with notes intact', () => {
     const store = memory();
     const legacy = {

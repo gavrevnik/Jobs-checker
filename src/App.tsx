@@ -31,6 +31,7 @@ import {
   Trash2,
   Upload,
   Wifi,
+  Plug,
   X,
 } from 'lucide-react';
 import {
@@ -48,6 +49,7 @@ import {
   type State,
 } from '../shared/model';
 import { api, date } from './api';
+import { SourcesPage } from './SourcesPage';
 import { ResourcesPage, type ResourceTab } from './ResourcesPage';
 const AnalyticsPage = lazy(() =>
   import('./AnalyticsPage').then((module) => ({ default: module.AnalyticsPage })),
@@ -72,7 +74,15 @@ const CompaniesPage = lazy(() =>
 const CompanyDetails = lazy(() =>
   import('./CompaniesPage').then((m) => ({ default: m.CompanyDetails })),
 );
-type Page = 'jobs' | 'companies' | 'pipeline' | 'sources' | 'profiles' | 'resources' | 'analytics';
+type Page =
+  | 'jobs'
+  | 'companies'
+  | 'pipeline'
+  | 'sources'
+  | 'profiles'
+  | 'resources'
+  | 'analytics'
+  | 'connections';
 type Dialog =
   | { kind: 'job'; item?: Job }
   | { kind: 'company'; item?: Company }
@@ -89,6 +99,7 @@ const nav = [
   { id: 'analytics', label: 'Аналитика', icon: Globe2 },
   { id: 'profiles', label: 'Профили поиска', icon: SlidersHorizontal },
   { id: 'resources', label: 'Полезные ресурсы', icon: BookOpen },
+  { id: 'connections', label: 'Источники', icon: Plug },
 ] as const;
 const blank: State = {
   jobs: [],
@@ -188,11 +199,13 @@ export default function App() {
           );
         })
         .sort((a, b) =>
-          sort === 'match'
-            ? (matches.get(b.id)?.score ?? -1) - (matches.get(a.id)?.score ?? -1)
-            : sort === 'company'
-              ? a.company.localeCompare(b.company)
-              : b.createdAt.localeCompare(a.createdAt),
+          sort === 'ai'
+            ? (b.aiScore ?? -1) - (a.aiScore ?? -1)
+            : sort === 'match'
+              ? (matches.get(b.id)?.score ?? -1) - (matches.get(a.id)?.score ?? -1)
+              : sort === 'company'
+                ? a.company.localeCompare(b.company)
+                : b.createdAt.localeCompare(a.createdAt),
         ),
     [
       state.jobs,
@@ -302,7 +315,7 @@ export default function App() {
       <aside className="sidebar">
         <a
           className="brand"
-          aria-label="Scout — главная"
+          aria-label="Jobs checker — главная"
           href="#"
           onClick={(e) => {
             e.preventDefault();
@@ -312,9 +325,7 @@ export default function App() {
           <span className="brand-mark">
             <Compass size={26} strokeWidth={1.5} />
           </span>
-          <span>
-            scout<span className="brand-dot">.</span>
-          </span>
+          <span>Jobs checker</span>
         </a>
         <nav>
           {nav.map((item) => (
@@ -645,6 +656,7 @@ export default function App() {
                         >
                           <option value="new">недавно добавленные</option>
                           <option value="match">релевантные</option>
+                          <option value="ai">высокий AI-score</option>
                           <option value="company">по компании</option>
                         </select>
                       </label>
@@ -699,6 +711,15 @@ export default function App() {
                                 </div>
                               </div>
                               <div className="job-actions">
+                                {j.aiScore != null && (
+                                  <button
+                                    className={`ai-score ${j.aiScore >= 8 ? 'strong' : ''}`}
+                                    title={j.aiSummary || 'Открыть AI-оценку'}
+                                    onClick={() => setDialog({ kind: 'detail', id: j.id })}
+                                  >
+                                    <Sparkles size={13} /> AI {j.aiScore}/10
+                                  </button>
+                                )}
                                 <button
                                   className={`bookmark ${j.favorite ? 'saved' : ''}`}
                                   aria-label={
@@ -717,11 +738,12 @@ export default function App() {
                                     onClick={() => setDialog({ kind: 'detail', id: j.id })}
                                   >
                                     <Sparkles size={12} />
-                                    {matches.get(j.id)?.score}%
+                                    Фильтр {matches.get(j.id)?.score}%
                                   </button>
                                 )}
                               </div>
                             </div>
+                            {j.aiSummary && <p className="job-ai-summary">{j.aiSummary}</p>}
                             <div className="job-bottom">
                               <div className="job-tags">
                                 {j.tags.slice(0, 3).map((t, i) => (
@@ -908,6 +930,14 @@ export default function App() {
                     onOpen={(id) => setDialog({ kind: 'detail', id })}
                   />
                 </Suspense>
+              )}
+              {page === 'connections' && (
+                <SourcesPage
+                  state={state}
+                  profile={profile}
+                  refresh={refresh}
+                  openJob={(id) => setDialog({ kind: 'detail', id })}
+                />
               )}
               {page === 'resources' && (
                 <ResourcesPage
@@ -1316,6 +1346,29 @@ export default function App() {
                   <span key={i}>{t}</span>
                 ))}
               </div>
+              {details.aiScore != null && (
+                <section className="ai-review detail-section">
+                  <h3>
+                    <Sparkles size={17} /> AI-score {details.aiScore}/10
+                  </h3>
+                  <p className="ai-review-context">
+                    {state.profiles.find((p) => p.id === details.aiProfileId)?.name ||
+                      'Профиль на дату оценки'}
+                    {details.aiReviewedAt && ` · ${date(details.aiReviewedAt)}`}
+                  </p>
+                  <p className="ai-review-summary">{details.aiSummary}</p>
+                  <p className="description">{details.aiReason}</p>
+                  {!!details.aiEvidenceUrls?.length && (
+                    <div className="ai-review-links">
+                      {details.aiEvidenceUrls.map((url, i) => (
+                        <External key={url} href={url}>
+                          Источник {i + 1} <ArrowUpRight size={12} />
+                        </External>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
               {matches.get(details.id)?.score !== null && (
                 <div className="match-explanation">
                   <h3>

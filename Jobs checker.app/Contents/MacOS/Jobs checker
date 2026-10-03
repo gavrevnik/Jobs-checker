@@ -16,7 +16,7 @@ show_error() {
   fi
   /usr/bin/osascript - "$1" <<'APPLESCRIPT'
 on run argv
-  display alert "Scout" message (item 1 of argv) as critical
+  display alert "Jobs checker" message (item 1 of argv) as critical
 end run
 APPLESCRIPT
 }
@@ -29,11 +29,11 @@ open_interface() {
 }
 
 if [[ -z "${SCOUT_NODE}" || -z "${SCOUT_NPM}" ]]; then
-  show_error "Node.js/npm не найден. Установите Node.js 22.13+ и снова откройте Scout."
+  show_error "Node.js/npm не найден. Установите Node.js 22.13+ и снова откройте Jobs checker."
   exit 1
 fi
 if ! "${SCOUT_NODE}" -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 13) ? 0 : 1)'; then
-  show_error "Для Scout нужен Node.js 22.13 или новее. Обновите Node.js и повторите запуск."
+  show_error "Для Jobs checker нужен Node.js 22.13 или новее. Обновите Node.js и повторите запуск."
   exit 1
 fi
 
@@ -48,7 +48,7 @@ SCOUT_INTERNAL_URL="http://127.0.0.1:${SCOUT_PORT}/"
 
 server_ready() {
   /usr/bin/curl -fsS --max-time 1 "${SCOUT_INTERNAL_URL}api/health" 2>/dev/null |
-    "${SCOUT_NODE}" -e 'try { const h = JSON.parse(require("node:fs").readFileSync(0, "utf8")); process.exit(h.ok === true && h.application === "scout-local" && h.workspace === process.argv[1] ? 0 : 1); } catch { process.exit(1); }' "${SCOUT_ROOT}"
+    "${SCOUT_NODE}" -e 'try { const h = JSON.parse(require("node:fs").readFileSync(0, "utf8")); process.exit(h.ok === true && h.application === "jobs-checker" && h.workspace === process.argv[1] ? 0 : 1); } catch { process.exit(1); }' "${SCOUT_ROOT}"
 }
 
 if server_ready; then
@@ -77,7 +77,7 @@ const child = spawn('/bin/zsh', ['-c', `
   fi
   "$2" run build
   exec "$3" --import tsx server/index.ts --production
-`, 'scout-launcher', root, npm, process.execPath], {
+`, 'jobs-checker-launcher', root, npm, process.execPath], {
   cwd: root,
   detached: true,
   stdio: ['ignore', fd, fd],
@@ -99,11 +99,11 @@ for _ in {1..600}; do
     exit 0
   fi
   if ! kill -0 "${SCOUT_PID}" 2>/dev/null; then
-    show_error "Не удалось запустить Scout. Подробности в ${SCOUT_RUNTIME}/web.log"
+    show_error "Не удалось запустить Jobs checker. Подробности в ${SCOUT_RUNTIME}/web.log"
     exit 1
   fi
   /bin/sleep 0.2
 done
 
-show_error "Запуск занимает больше времени, чем ожидалось. Сборка может продолжаться в фоне. Проверьте ${SCOUT_RUNTIME}/web.log и снова откройте Scout."
+show_error "Запуск занимает больше времени, чем ожидалось. Сборка может продолжаться в фоне. Проверьте ${SCOUT_RUNTIME}/web.log и снова откройте Jobs checker."
 exit 1

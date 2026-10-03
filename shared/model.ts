@@ -24,6 +24,10 @@ export const providerLabels: Record<string, string> = {
   ashby: 'Ashby',
   adzuna: 'Adzuna',
   demo: 'Демо',
+  smartrecruiters: 'SmartRecruiters',
+  arbeitnow: 'Arbeitnow',
+  serpapi: 'Google Jobs · SerpAPI',
+  jooble: 'Jooble',
 };
 const text = z.string().trim().max(2000);
 const link = z.union([
@@ -118,11 +122,30 @@ export const jobSchema = z
     tags: z.array(z.string().trim().max(80)).max(40).default([]),
     description: z.string().max(200000).default(''),
     notes: z.string().max(30000).default(''),
+    aiScore: z.number().min(0).max(10).nullable().default(null),
+    aiSummary: z.string().max(600).default(''),
+    aiReason: z.string().max(10000).default(''),
+    aiProfileId: z.string().max(100).default(''),
+    aiReviewedAt: timestamp.default(''),
+    aiEvidenceUrls: z.array(link).max(20).default([]),
     stage: z.enum(stages).default('new'),
     favorite: z.boolean().default(false),
     followUp: z.union([z.literal(''), z.iso.date()]).default(''),
     source: z
-      .enum(['manual', 'import', 'remotive', 'greenhouse', 'lever', 'ashby', 'adzuna', 'demo'])
+      .enum([
+        'manual',
+        'import',
+        'remotive',
+        'greenhouse',
+        'lever',
+        'ashby',
+        'adzuna',
+        'smartrecruiters',
+        'arbeitnow',
+        'serpapi',
+        'jooble',
+        'demo',
+      ])
       .default('manual'),
     externalId: text.default(''),
     publishedAt: timestamp.default(''),
@@ -158,7 +181,17 @@ export const profileSchema = z.object({
 });
 export const sourceSchema = z
   .object({
-    provider: z.enum(['remotive', 'greenhouse', 'lever', 'ashby', 'adzuna']),
+    provider: z.enum([
+      'remotive',
+      'greenhouse',
+      'lever',
+      'ashby',
+      'adzuna',
+      'smartrecruiters',
+      'arbeitnow',
+      'serpapi',
+      'jooble',
+    ]),
     name: z.string().trim().min(1).max(200),
     board: z
       .string()
@@ -170,31 +203,19 @@ export const sourceSchema = z
     enabled: z.boolean().default(true),
     query: z.string().trim().max(200).default(''),
     country: z
-      .enum([
-        'gb',
-        'us',
-        'de',
-        'fr',
-        'nl',
-        'pl',
-        'at',
-        'au',
-        'ca',
-        'nz',
-        'za',
-        'br',
-        'it',
-        'es',
-        'in',
-        'sg',
-        'ch',
-        'be',
-        'mx',
-      ])
-      .default('gb'),
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[a-z]{2}$|^$/)
+      .default(''),
+    location: z.string().trim().max(200).default(''),
+    companyId: z.string().max(100).default(''),
+    profileId: z.string().max(100).default(''),
+    monitoring: z.boolean().default(false),
+    intervalHours: z.number().int().min(6).max(168).default(12),
   })
   .refine(
-    (v) => !['greenhouse', 'lever', 'ashby'].includes(v.provider) || !!v.board,
+    (v) => !['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(v.provider) || !!v.board,
     'Укажите идентификатор доски вакансий',
   );
 export type CompanyInput = z.infer<typeof companySchema>;
@@ -307,6 +328,17 @@ export function canonicalUrl(value: string) {
   if (!value) return '';
   const url = new URL(value);
   url.hash = '';
+  // The path already identifies a Greenhouse post; gh_jid is redundant there.
+  if (
+    /^(job-boards(?:\.eu)?|boards)\.greenhouse\.io$/.test(url.hostname) &&
+    /\/jobs\/\d+\/?$/.test(url.pathname)
+  ) {
+    url.searchParams.delete('gh_jid');
+    url.searchParams.delete('gh_src');
+  }
+  // SmartRecruiters may return the same post with or without its readable slug.
+  if (url.hostname === 'jobs.smartrecruiters.com')
+    url.pathname = url.pathname.replace(/^(\/[^/]+\/\d+)(?:-[^/]*)?\/?$/, '$1');
   for (const key of [...url.searchParams.keys()])
     if (/^(utm_|ref$|source$)/i.test(key)) url.searchParams.delete(key);
   url.searchParams.sort();

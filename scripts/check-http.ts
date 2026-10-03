@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { get } from 'node:http';
 
 // Uses an isolated temporary database. Build the frontend first.
-const dir = mkdtempSync(join(tmpdir(), 'scout-http-'));
+const dir = mkdtempSync(join(tmpdir(), 'jobs-checker-http-'));
 const port = 4328;
 const base = `http://127.0.0.1:${port}`;
 const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts', '--production'], {
@@ -22,7 +22,7 @@ try {
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error(`Server startup timed out: ${logs}`)), 10000);
     child.stdout.on('data', (b) => {
-      if (String(b).includes('Scout доступен')) {
+      if (String(b).includes('Jobs checker доступен')) {
         clearTimeout(timeout);
         resolve();
       }
@@ -45,7 +45,7 @@ try {
   assert.equal((await fetch(base)).status, 200);
   const health = (await call('/health')).body;
   assert.equal(health.ok, true);
-  assert.equal(health.application, 'scout-local');
+  assert.equal(health.application, 'jobs-checker');
   assert.equal(health.workspace, process.cwd());
   assert.equal(
     (

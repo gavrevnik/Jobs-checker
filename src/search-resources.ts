@@ -92,7 +92,7 @@ export const searchResources: SearchResource[] = [
     reach: 'Компании, использующие Greenhouse',
     description:
       'Greenhouse — система найма работодателей. MyGreenhouse — портал кандидата для поиска вакансий, откликов и их отслеживания.',
-    fit: 'Полезен для адресного поиска в выбранных tech-компаниях. Их отдельные Greenhouse-доски уже можно подключать к Scout.',
+    fit: 'Полезен для адресного поиска в выбранных tech-компаниях. Их отдельные Greenhouse-доски уже можно подключать к Jobs checker.',
     caveat:
       'Охват ограничен работодателями на этой платформе. Само использование Greenhouse ничего не говорит о силе аналитики.',
     extraUrl: 'https://www.greenhouse.com/',
