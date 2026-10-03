@@ -5,6 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { searchSchema } from '../shared/source-tools.js';
 import { boardSchema } from '../server/source-tools.js';
+import { discoveryReviewSchema, discoveryHistorySchema } from '../shared/discovery-review.js';
 import { importSchema } from '../server/store.js';
 import { stages } from '../shared/model.js';
 
@@ -25,7 +26,7 @@ const server = new McpServer(
   { name: 'jobs-checker', version: '0.2.0' },
   {
     instructions:
-      'Use jobs_sources_status first. Search and monitoring default to execute=false (no provider calls). Set execute=true only for an intended live run; maxRequests is a hard network request budget. store=true writes matching vacancies to the local ATS and preserves user workflow. Remote does not imply worldwide eligibility. Web-plan returns queries, not verified vacancies. Import only verified real job URLs; do not invent dates, salary or location. Never submit applications.',
+      'Use jobs_sources_status and jobs_discovery_history first. Search and monitoring default to execute=false (no provider calls). Set execute=true only for an intended live run; maxRequests is a hard network request budget. store=true writes matching vacancies to the local ATS and preserves user workflow. Remote does not imply worldwide eligibility. Web-plan returns queries, not verified vacancies. Import only verified real job URLs; do not invent dates, salary or location. Never submit applications.',
   },
 );
 async function call(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST') {
@@ -62,6 +63,25 @@ server.registerTool(
   () => call('/source-tools'),
 );
 server.registerTool(
+  'jobs_discovery_history',
+  {
+    description:
+      'Read previous search strategies, exact queries, yield and recommendations before new discovery. No external calls.',
+    inputSchema: discoveryHistorySchema.shape,
+    annotations: { readOnlyHint: true },
+  },
+  (args) => call('/source-tools/discovery-history', args),
+);
+server.registerTool(
+  'jobs_discovery_save',
+  {
+    description:
+      'Save a discovery review with strategy, per-query results, next searches and imported ATS IDs. Reuse the same id to update a review without duplicates. No external calls.',
+    inputSchema: discoveryReviewSchema.shape,
+  },
+  (args) => call('/source-tools/discovery-review', args),
+);
+server.registerTool(
   'jobs_profiles',
   {
     description: 'Read local search profiles and companies for profileId/companyId selection.',
@@ -82,7 +102,7 @@ server.registerTool(
   'jobs_search',
   {
     description:
-      'Plan or execute provider search with profile filters. execute=false by default. store=true upserts results to ATS. Budget includes all pages and queries; keywords are OR alternatives. Country is explicit for Adzuna/Jooble; locations are strict text filters.',
+      'Plan or execute provider search with profile filters. execute=false by default. store=true upserts results to ATS. Budget includes all pages and queries; keywords are OR alternatives. Use adzuna for native salary, age, keyword, company, geographic and contract filters (see schema); explicit native keyword fields produce one Adzuna query, local/profile filters still apply. Country is explicit for Adzuna/Jooble; locations are strict text filters.',
     inputSchema: searchSchema.shape,
   },
   (args) => call('/source-tools/search', args),

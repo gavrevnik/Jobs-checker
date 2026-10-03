@@ -1,4 +1,5 @@
 import he from 'he';
+import { adzunaSearchParams, type AdzunaSearch } from '../shared/adzuna.js';
 import { jobSchema, type JobInput, type Source, type Profile } from '../shared/model.js';
 import type { Store } from './store.js';
 import { acceptsJob, searchSchema, boardProviders } from '../shared/source-tools.js';
@@ -189,7 +190,12 @@ export type Fetcher = typeof fetch;
 export async function fetchJobs(
   source: Source,
   fetcher: Fetcher = fetch,
-  options: { maxPages?: number; location?: string } = {},
+  options: {
+    maxPages?: number;
+    location?: string;
+    adzuna?: AdzunaSearch;
+    maxAgeDays?: number;
+  } = {},
 ): Promise<JobInput[]> {
   const get = async (url: string, payload?: object) => {
     const response = await fetcher(url, {
@@ -245,24 +251,24 @@ export async function fetchJobs(
     if (!process.env.ADZUNA_APP_ID || !process.env.ADZUNA_APP_KEY)
       throw new Error('Добавьте ADZUNA_APP_ID и ADZUNA_APP_KEY в .env и перезапустите приложение');
     if (!source.country) throw new Error('Для Adzuna укажите country: двухбуквенный код рынка');
-    for (let page = 1; page <= (options.maxPages ?? 3); page++) {
-      const params = new URLSearchParams({
-        app_id: process.env.ADZUNA_APP_ID,
-        app_key: process.env.ADZUNA_APP_KEY,
-        results_per_page: '50',
-        what: source.query,
-        ...(options.location || source.location
-          ? { where: options.location || source.location }
-          : {}),
-        sort_by: 'date',
-        'content-type': 'application/json',
-      });
+    const params = adzunaSearchParams(
+      source.query,
+      options.location || source.location,
+      options.adzuna,
+      options.maxAgeDays,
+    );
+    params.set('app_id', process.env.ADZUNA_APP_ID);
+    params.set('app_key', process.env.ADZUNA_APP_KEY);
+    params.set('content-type', 'application/json');
+    const firstPage = options.adzuna?.page ?? 1;
+    const pageSize = Number(params.get('results_per_page'));
+    for (let page = firstPage; page < firstPage + (options.maxPages ?? 3); page++) {
       const data = await get(
         `https://api.adzuna.com/v1/api/jobs/${source.country}/search/${page}?${params}`,
       );
       if (!Array.isArray(data.results)) throw new Error('Неожиданный формат ответа Adzuna');
       rows.push(...data.results);
-      if (data.results.length < 50) break;
+      if (data.results.length < pageSize) break;
     }
   }
   if (source.provider === 'smartrecruiters') {

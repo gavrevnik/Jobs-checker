@@ -43,7 +43,7 @@ try {
     }),
   );
   const listed = await client.listTools();
-  assert.equal(listed.tools.length, 10);
+  assert.equal(listed.tools.length, 12);
   const call = async (name: string, args: Record<string, unknown> = {}) => {
     const result = await client.callTool({ name, arguments: args });
     assert.ok(!result.isError, JSON.stringify(result));
@@ -51,6 +51,13 @@ try {
   };
   const status = await call('jobs_sources_status');
   assert.equal(status.providers.length, 9);
+  assert.equal(status.providers.find((p: any) => p.id === 'adzuna').quota.limit, 2500);
+  assert.equal(status.providers.find((p: any) => p.id === 'jooble').quota.limit, 500);
+  assert.equal(
+    status.providers.find((p: any) => p.id === 'jooble').quota.windows[0].nextResetAt,
+    null,
+  );
+  assert.ok(status.providers.find((p: any) => p.id === 'serpapi').quota.updatedAt);
   const plan = await call('jobs_search', {
     providers: ['adzuna'],
     keywords: ['Analyst'],
@@ -58,6 +65,41 @@ try {
   });
   assert.equal(plan.execute, false);
   assert.equal(plan.requests, 0);
+  const nativePlan = await call('jobs_search', {
+    providers: ['adzuna'],
+    country: 'es',
+    keywords: [],
+    adzuna: {
+      what_phrase: 'product analyst',
+      salary_min: 60000,
+      salary_include_unknown: true,
+      full_time: true,
+      max_days_old: 14,
+    },
+  });
+  assert.equal(nativePlan.targets.length, 1);
+  assert.equal(nativePlan.targets[0].params.salary_min, '60000');
+  assert.equal(nativePlan.targets[0].params.salary_include_unknown, '1');
+  assert.equal(nativePlan.targets[0].params.what_phrase, 'product analyst');
+  assert.equal(nativePlan.requests, 0);
+  const invalidNative = await client.callTool({
+    name: 'jobs_search',
+    arguments: { providers: ['adzuna'], adzuna: { salary_min: 90000, salary_max: 60000 } },
+  });
+  assert.equal(invalidNative.isError, true);
+
+  assert.equal((await call('jobs_discovery_history')).reviews.length, 0);
+  const review = {
+    id: 'test-discovery',
+    title: 'Test strategy',
+    summary: 'Prefer new domains',
+    stats: { requests: 0, returned: 0, unique: 0, added: 0 },
+  };
+  await call('jobs_discovery_save', review);
+  await call('jobs_discovery_save', { ...review, summary: 'Prefer verified employers' });
+  const history = await call('jobs_discovery_history');
+  assert.equal(history.reviews.length, 1);
+  assert.equal(history.reviews[0].summary, 'Prefer verified employers');
   const data = {
     jobs: [
       {
@@ -96,7 +138,7 @@ try {
   assert.equal((await call('jobs_monitor_companies')).due.length, 1);
   assert.equal((await call('jobs_web_search_plan', { keywords: ['SQL'] })).resources.length, 6);
   console.log(
-    'MCP check passed: stdio initialization, 10 tools, dry-run, board registration, web plan, ATS preview/import/dedup/update. No external provider calls.',
+    'MCP check passed: stdio initialization, 12 tools, dry-run, board registration, web plan, ATS preview/import/dedup/update. No external provider calls.',
   );
 } finally {
   await client.close();

@@ -200,6 +200,34 @@
   color: #9aa194;
   font-size: 10px;
 }
+.adapter-quota {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  color: #587360;
+  background: #f0f4ec;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: help;
+}
+.adapter-quota > span {
+  opacity: 0.75;
+}
+.adapter-quota.warning {
+  color: #956822;
+  background: #faf1dc;
+}
+.adapter-quota.exhausted {
+  color: #a44936;
+  background: #fff0eb;
+}
+.adapter-quota:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
 .adapter-status {
   display: flex;
   align-items: center;

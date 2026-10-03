@@ -1,6 +1,6 @@
 # Jobs checker MCP
 
-`npm run mcp` запускает stdio MCP-сервер с десятью инструментами. Локальный jobs-checker должен работать отдельно: `npm start` или штатный запуск из Life Hub. Обёртка обращается только к loopback HTTP API; сама не открывает SQLite и не обращается к провайдерам. Секреты остаются в `.env` локального сервиса.
+`npm run mcp` запускает stdio MCP-сервер с двенадцатью инструментами. Локальный jobs-checker должен работать отдельно: `npm start` или штатный запуск из Life Hub. Обёртка обращается только к loopback HTTP API; сама не открывает SQLite и не обращается к провайдерам. Секреты остаются в `.env` локального сервиса.
 
 ## Подключение
 
@@ -26,6 +26,8 @@ tool_timeout_sec = 300
 | Инструмент               | Действие                                                                             |
 | ------------------------ | ------------------------------------------------------------------------------------ |
 | `jobs_sources_status`    | Адаптеры, состояния, отсутствующие переменные, локальная квота и история             |
+| `jobs_discovery_history` | Сохранённые стратегии, результаты и рекомендации прошлых подборок                    |
+| `jobs_discovery_save`    | Сохранить/обновить summary поиска, параметры запросов и ID карточек                  |
 | `jobs_profiles`          | Профили и компании: получить реальные ID перед вызовами                              |
 | `jobs_search`            | План или поиск; `execute=false` по умолчанию; `store=true` пополняет ATS             |
 | `jobs_add_company_board` | Добавить компанию/доску и настройки мониторинга, без запроса к провайдеру            |
@@ -78,3 +80,11 @@ npm run tools -- monitor '{"execute":true,"maxRequests":20}'
 ```
 
 Проверки: `npm test`, `npm run build`, `npm run test:http`, `npm run test:mcp`. `npm run test:providers:live` отдельно делает небольшие реальные запросы только к бесплатным API на изолированной базе.
+
+## Фильтры Adzuna
+
+В `jobs_search` передавайте `adzuna: {"what_phrase":"product analyst","salary_min":60000,"salary_include_unknown":true,"max_days_old":14,"full_time":true}` вместе с `providers:["adzuna"]` и `country:"es"`. Для чистого провайдерного запроса без локального отбора профиля задайте `keywords:[]`, `locations:[]`, `minSalary:null`, `seniority:"any"`, `workMode:"any"`, `exclude:[]`. Явные `what`/`what_and`/`what_or`/`what_phrase`/`title_only` создают один запрос Adzuna вместо отдельных запросов по keywords; фильтры профиля всё равно применяются после ответа. [Полный список, ограничения и пример](ADZUNA_FILTERS.md).
+
+## Память стратегии
+
+Перед новой подборкой вызовите `jobs_discovery_history` (`profileId` необязателен, `limit` 1–100, по умолчанию 20). По окончании `jobs_discovery_save` сохраняет `id`, `title`, `profileId`, `summary`, `nextSearches`, `queries` (label, parameters поиска, requests, received, notes), `stats` (requests, returned, unique, added), `jobIds`. Один и тот же `id` обновляет запись без дубля; `createdAt` сохраняется. Это чтение/запись локальной памяти без внешних запросов.

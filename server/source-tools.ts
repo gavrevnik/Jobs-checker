@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { adzunaSearchParams, hasAdzunaQuery } from '../shared/adzuna.js';
 import {
   sourceSchema,
   type Source,
@@ -133,18 +134,20 @@ export class SourceTools {
         );
       else {
         // Separate provider queries keep keyword synonyms portable across APIs.
-        const queries = ['arbeitnow', 'remotive'].includes(provider)
-          ? ['']
-          : [
-              ...new Set(
-                filters.keywords.flatMap((k) =>
-                  k
-                    .split('|')
-                    .map((s) => s.trim())
-                    .filter(Boolean),
+        const queries =
+          ['arbeitnow', 'remotive'].includes(provider) ||
+          (provider === 'adzuna' && hasAdzunaQuery(args.adzuna))
+            ? ['']
+            : [
+                ...new Set(
+                  filters.keywords.flatMap((k) =>
+                    k
+                      .split('|')
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  ),
                 ),
-              ),
-            ];
+              ];
         for (const query of queries.length ? queries : [''])
           targets.push({
             ...sourceSchema.parse({
@@ -175,6 +178,20 @@ export class SourceTools {
         name: s.name,
         board: s.board,
         query: s.query,
+        ...(s.provider === 'adzuna'
+          ? {
+              country: s.country,
+              page: args.adzuna?.page ?? 1,
+              params: Object.fromEntries(
+                adzunaSearchParams(
+                  s.query,
+                  args.location || s.location,
+                  args.adzuna,
+                  args.maxAgeDays,
+                ),
+              ),
+            }
+          : {}),
       })),
       unavailable: args.providers
         .filter((p) => !targets.some((s) => s.provider === p))
@@ -216,7 +233,12 @@ export class SourceTools {
           const raw = await fetchJobs(
             source,
             meteredFetcher(this.store, source.provider, budget, this.fetcher),
-            { maxPages: args.maxPages, location: args.location },
+            {
+              maxPages: args.maxPages,
+              location: args.location,
+              adzuna: args.adzuna,
+              maxAgeDays: args.maxAgeDays,
+            },
           );
           received = raw.length;
           const selected = raw

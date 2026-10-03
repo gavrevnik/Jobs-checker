@@ -41,13 +41,11 @@ afterEach(() => {
 describe('Provider tools and ATS ingestion', () => {
   it('stores only reviewed external IDs even when the search filters are broad', async () => {
     const s = db();
-    const mock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        response({
-          jobs: [posting, { ...posting, id: 'role-2', jobUrl: 'https://example.com/role-2' }],
-        }),
-      );
+    const mock = vi.fn<typeof fetch>().mockResolvedValue(
+      response({
+        jobs: [posting, { ...posting, id: 'role-2', jobUrl: 'https://example.com/role-2' }],
+      }),
+    );
     const tools = new SourceTools(s, mock);
     tools.addBoard({ provider: 'ashby', board: 'Acme', name: 'Acme' });
     const result = await tools.search({
@@ -386,7 +384,7 @@ describe('Additional provider contracts and quotas', () => {
     );
     for (let i = 0; i < 249; i++)
       s.db
-        .prepare('INSERT INTO provider_requests VALUES (?,?)')
+        .prepare('INSERT INTO provider_requests(provider,at) VALUES (?,?)')
         .run('serpapi', new Date().toISOString());
     expect(quota(s, 'serpapi').remaining).toBe(0);
     await expect(
@@ -396,7 +394,7 @@ describe('Additional provider contracts and quotas', () => {
         { used: 0, limit: 10, cacheHits: 0, observedAt: '' },
         mock,
       )('https://serpapi.com/search.json?q=new'),
-    ).rejects.toThrow('месячный');
+    ).rejects.toThrow('лимит API');
     expect(JSON.stringify(new SourceTools(s).status())).not.toContain('fixture-secret');
     expect(mock).toHaveBeenCalledTimes(1);
   });

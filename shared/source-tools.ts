@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { adzunaSearchSchema } from './adzuna.js';
 import { keywordTerms, type JobInput, type Profile } from './model.js';
 
 export const providerIds = [
@@ -56,7 +57,7 @@ export const providerCatalog: {
     description: 'Дополнительный поиск · ключ для выбранного рынка',
     docs: 'https://jooble.org/api/about',
     credentials: ['JOOBLE_API_KEY'],
-    cost: 'Доступ и квота зависят от выданного ключа',
+    cost: '500 запросов на ключ · без сброса',
     ttlHours: 1,
   },
   {
@@ -160,6 +161,11 @@ export const webSources = [
 ];
 const terms = z.array(z.string().trim().min(1).max(200)).max(30);
 export const searchSchema = z.object({
+  adzuna: adzunaSearchSchema
+    .optional()
+    .describe(
+      'Native Adzuna filters only; other providers ignore them. Profile/local filters still apply.',
+    ),
   providers: z.array(z.enum(providerIds)).min(1).max(9).default(['arbeitnow', 'remotive']),
   sourceIds: z.array(z.string().min(1).max(100)).max(50).default([]),
   externalIds: z.array(z.string().min(1).max(2000)).max(500).default([]),
@@ -275,7 +281,28 @@ export type ProviderView = (typeof providerCatalog)[number] & {
   connections: number;
   lastRun: string;
   error: string;
-  quota: { used: number; limit: number | null; remaining: number | null };
+  quota: ProviderQuota;
+};
+export type QuotaWindow = {
+  label: string;
+  used: number;
+  limit: number;
+  remaining: number;
+  start: string | null;
+  end: string | null;
+  nextResetAt: string | null;
+  resetRule: string;
+};
+export type ProviderQuota = {
+  used: number;
+  limit: number | null;
+  remaining: number | null;
+  label: string;
+  plan: string;
+  note: string;
+  pricingUrl: string;
+  updatedAt: string;
+  windows: QuotaWindow[];
 };
 export type SourceRun = {
   id: string;

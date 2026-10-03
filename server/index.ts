@@ -58,6 +58,12 @@ app.post('/api/source-tools/enrich', async (req, res) =>
 );
 app.post('/api/source-tools/web-plan', (req, res) => res.json(sourceTools.webPlan(req.body)));
 app.post('/api/source-tools/ats', (req, res) => res.json(sourceTools.ats(req.body)));
+app.post('/api/source-tools/discovery-history', (req, res) =>
+  res.json({ reviews: store.discoveryHistory(req.body) }),
+);
+app.post('/api/source-tools/discovery-review', (req, res) =>
+  res.json(store.saveDiscoveryReview(req.body)),
+);
 app.get('/api/state', (_req, res) => res.json(store.state()));
 app.get('/api/health', (_req, res) =>
   res.json({ ok: true, application: 'jobs-checker', workspace: resolve('.'), syncing: sync.busy }),

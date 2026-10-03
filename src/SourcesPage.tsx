@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Globe2,
+  Gauge,
   History,
   KeyRound,
   Loader2,
@@ -21,6 +22,7 @@ import {
   webSearchPlan,
   type ProviderId,
   type ProviderView,
+  type ProviderQuota,
   type SourceRun,
 } from '../shared/source-tools';
 import { api, date } from './api';
@@ -46,6 +48,19 @@ const tabs = [
   { id: 'web', title: 'Web-поиск', icon: Globe2 },
   { id: 'history', title: 'История', icon: History },
 ] as const;
+const quotaDate = (value: string) =>
+  `${new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(value))} UTC`;
+function quotaHint(quota: ProviderQuota) {
+  return [
+    quota.plan,
+    ...quota.windows.map(
+      (w) =>
+        `${w.label}: ${w.used.toLocaleString('ru-RU')} / ${w.limit.toLocaleString('ru-RU')}, осталось ${w.remaining.toLocaleString('ru-RU')}. ${w.resetRule}${w.nextResetAt ? ` Ближайшее обновление: ${quotaDate(w.nextResetAt)}.` : ''}`,
+    ),
+    quota.note,
+    `Проверено ${quotaDate(quota.updatedAt)}. На открытой странице обновляется каждые 30 секунд.`,
+  ].join('\n\n');
+}
 export function SourcesPage({
   state,
   profile,
@@ -77,6 +92,31 @@ export function SourcesPage({
   useEffect(() => {
     void load().catch((e) => setError(e.message));
   }, [state.sources]);
+  useEffect(() => {
+    let active = true;
+    let pending = false;
+    const update = async () => {
+      if (document.visibilityState !== 'visible' || pending) return;
+      pending = true;
+      try {
+        const next = await api<Status>('/source-tools');
+        if (active) setStatus(next);
+      } catch {
+        // Keep the last snapshot and its timestamp while the local server is unavailable.
+      } finally {
+        pending = false;
+      }
+    };
+    const timer = window.setInterval(() => void update(), 30000);
+    window.addEventListener('focus', update);
+    document.addEventListener('visibilitychange', update);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', update);
+      document.removeEventListener('visibilitychange', update);
+    };
+  }, []);
   useEffect(() => {
     setKeywords(profile?.keywords.join(', ') || '');
     setResult(null);
@@ -367,15 +407,27 @@ export function SourcesPage({
                             <i />
                             {labels[p.status]}
                           </span>
-                          <small>
-                            {p.quota.limit
-                              ? `${p.quota.used} / ${p.quota.limit} запросов`
-                              : p.group === 'boards'
+                          {p.quota.limit !== null ? (
+                            <span
+                              className={`adapter-quota ${p.quota.windows.some((w) => w.remaining === 0) ? 'exhausted' : p.quota.windows.some((w) => w.used >= w.limit * 0.8) ? 'warning' : ''}`}
+                              tabIndex={0}
+                              title={quotaHint(p.quota)}
+                              aria-label={`${p.name}. ${quotaHint(p.quota)}`}
+                            >
+                              <Gauge size={12} aria-hidden="true" />
+                              {p.quota.used.toLocaleString('ru-RU')} /{' '}
+                              {p.quota.limit.toLocaleString('ru-RU')}
+                              <span>· {p.quota.label}</span>
+                            </span>
+                          ) : (
+                            <small>
+                              {p.group === 'boards'
                                 ? `${p.connections} досок`
                                 : p.credentials.length
                                   ? 'Квота аккаунта'
                                   : 'Без ключа'}
-                          </small>
+                            </small>
+                          )}
                         </div>
                         <button
                           className={`toggle ${p.enabled ? 'on' : ''}`}
@@ -404,7 +456,7 @@ export function SourcesPage({
                       </div>
                       {expanded === p.id && (
                         <div className="adapter-expanded">
-                          <span>{p.cost}</span>
+                          <span>{p.quota.limit !== null ? p.quota.plan : p.cost}</span>
                           <span>
                             Кэш: {p.ttlHours < 1 ? '15 мин' : `${p.ttlHours} ч`} · MCP: jobs_search
                           </span>
@@ -416,6 +468,9 @@ export function SourcesPage({
                           )}
                           {p.error && <ErrorText error={p.error} />}
                           <External href={p.docs}>Документация</External>
+                          {p.quota.pricingUrl && (
+                            <External href={p.quota.pricingUrl}>Тарифы и лимиты</External>
+                          )}
                           {p.group === 'boards' && (
                             <button
                               className="text-link"

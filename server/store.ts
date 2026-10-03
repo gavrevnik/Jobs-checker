@@ -16,6 +16,11 @@ import {
   type SourceInput,
 } from '../shared/model.js';
 import { z } from 'zod';
+import {
+  discoveryReviewSchema,
+  discoveryHistorySchema,
+  type DiscoveryReview,
+} from '../shared/discovery-review.js';
 import type { SourceRun } from '../shared/source-tools.js';
 
 const importedJob = jobSchema.safeExtend({
@@ -70,9 +75,20 @@ export class Store {
       CREATE TABLE IF NOT EXISTS provider_requests (provider TEXT NOT NULL, at TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS provider_requests_time ON provider_requests(provider,at);
       CREATE TABLE IF NOT EXISTS provider_cache (key TEXT PRIMARY KEY, body TEXT NOT NULL, at TEXT NOT NULL, expires INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS discovery_reviews (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS source_runs (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS job_observations (source_id TEXT NOT NULL, external_id TEXT NOT NULL, job_id TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, missing_count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(source_id,external_id));
-      PRAGMA user_version=2;`);
+      `);
+    const requestColumns = this.db.prepare('PRAGMA table_info(provider_requests)').all();
+    for (const [name, definition] of [
+      ['scope', "TEXT NOT NULL DEFAULT ''"],
+      ['outcome', "TEXT NOT NULL DEFAULT 'unknown'"],
+      ['external_id', "TEXT NOT NULL DEFAULT ''"],
+    ]) {
+      if (!requestColumns.some((column) => column.name === name))
+        this.db.exec(`ALTER TABLE provider_requests ADD COLUMN ${name} ${definition}`);
+    }
+    this.db.exec('PRAGMA user_version=3');
     if (!this.list<Profile>('profiles').length) this.saveProfile({ name: 'Мой поиск' });
     // Only on first database creation; a removed source is not resurrected.
     this.db.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)');
@@ -358,6 +374,28 @@ export class Store {
       }
       return { added, skipped, companies };
     });
+  }
+  saveDiscoveryReview(input: unknown) {
+    const data = discoveryReviewSchema.parse(input);
+    const row = this.db.prepare('SELECT data FROM discovery_reviews WHERE id=?').get(data.id);
+    const old = row ? (JSON.parse(row.data as string) as DiscoveryReview) : undefined;
+    const now = stamp();
+    const review: DiscoveryReview = { ...data, createdAt: old?.createdAt || now, updatedAt: now };
+    this.db
+      .prepare(
+        'INSERT INTO discovery_reviews (id,data) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',
+      )
+      .run(data.id, JSON.stringify(review));
+    return review;
+  }
+  discoveryHistory(input: unknown = {}) {
+    const args = discoveryHistorySchema.parse(input);
+    return this.db
+      .prepare(
+        "SELECT data FROM discovery_reviews WHERE (? IS NULL OR json_extract(data, '$.profileId')=?) ORDER BY json_extract(data, '$.updatedAt') DESC, rowid DESC LIMIT ?",
+      )
+      .all(args.profileId ?? null, args.profileId ?? null, args.limit)
+      .map((row) => JSON.parse(row.data as string) as DiscoveryReview);
   }
   recordRun(run: Omit<SourceRun, 'id' | 'at'>) {
     const saved: SourceRun = { ...run, id: randomUUID(), at: stamp() };

@@ -70,10 +70,18 @@
 | POST  | `/source-tools/web-plan`      | Сформировать web-search запросы по фильтрам, без внешнего вызова                                               |
 | POST  | `/source-tools/ats`           | query, stage, limit — чтение ATS и наблюдений                                                                  |
 
-`search`: providers, sourceIds, profileId, keywords, exclude, locations, workMode, seniority, minSalary, currency, salaryPeriod, country, location, maxAgeDays, includeUnknownDate, maxPages, maxRequests, maxItems, execute, store. По умолчанию execute=false и store=false. Примеры и точная семантика в [MCP.md](MCP.md).
+`search`: adzuna, providers, sourceIds, profileId, keywords, exclude, locations, workMode, seniority, minSalary, currency, salaryPeriod, country, location, maxAgeDays, includeUnknownDate, maxPages, maxRequests, maxItems, execute, store. По умолчанию execute=false и store=false. Примеры и точная семантика в [MCP.md](MCP.md).
 
 Провайдеры: greenhouse, lever, ashby, smartrecruiters, arbeitnow, remotive, adzuna, serpapi, jooble. Новые записи страны больше не получают GB автоматически: country передаётся явно, для Adzuna/Jooble необходим. Существующие значения в базе сохраняются.
 
 Состояние загрузки общее для операций источников; конфликтующий вызов возвращает 409. Провайдерные ошибки изолируются внутри результата поиска. При пагинации, оборванной лимитом, частичная выборка этого провайдера не записывается. Неподдерживаемый идентификатор доски/URL отклоняется; внешние HTTP-хосты заданы адаптером.
 
-SQLite дополнена таблицами provider_requests/provider_cache/source_runs/job_observations; миграция создаёт только новые структуры. JSON-экспорт не содержит кэш, журнал запросов и наблюдения; полная резервная копия — SQLite. Импорт экспортированных досок переназначает ID компаний/профилей на локальные.
+SQLite дополнена таблицами provider_requests/provider_cache/source_runs/job_observations; миграция дополняет структуры без сброса существующих данных. JSON-экспорт не содержит кэш, журнал запросов и наблюдения; полная резервная копия — SQLite. Импорт экспортированных досок переназначает ID компаний/профилей на локальные.
+
+`GET /source-tools` и MCP `jobs_sources_status` возвращают `providers[].quota`: `used`, `limit`, `remaining`, `label`, `plan`, `pricingUrl`, `note`, `updatedAt` и `windows[]`. Каждое окно содержит `used/limit/remaining`, `start/end`, `nextResetAt` и `resetRule`; время — ISO UTC. В скользящем окне `nextResetAt` означает выход старейшего запроса, а не обнуление всего счётчика. Для lifetime Jooble дата сброса отсутствует. Чтение статуса не вызывает API провайдера. Та же функция проверяет квоты перед сетевым вызовом.
+
+Миграция SQLite v3 добавляет в существующий `provider_requests` поля `scope` (хэш регионального ключа Jooble), `outcome` (`unknown`, `success`, `error`, `cached`) и `external_id` (SerpAPI search ID). Старые строки сохраняются с неизвестным исходом. Ни URL запроса, ни секреты не записываются. Временные окна вычисляются при чтении, очистка истории для сброса не требуется. Настройка расчётного цикла и лимитов SerpAPI описана в README и `.env.example`.
+
+Блок `adzuna` передаёт проверенные нативные фильтры только этому провайдеру. В dry-run `targets[].params` показывает фактические параметры без секретов, `country` и `page` — рынок и начальную страницу. Неизвестные поля блока и противоречивые диапазоны отклоняются до внешних запросов. [Список и семантика](ADZUNA_FILTERS.md).
+
+`POST /source-tools/discovery-history` читает `{reviews}` по `profileId`/`limit`. `POST /source-tools/discovery-review` валидирует и сохраняет summary по схеме `shared/discovery-review.ts`; таблица `discovery_reviews` создаётся дополнительно без изменения старых карточек. Подробности полей — в MCP.md.

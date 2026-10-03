@@ -1,5 +1,7 @@
 # Repository instructions
 
+When this checkout is inside `life-stack`, first read the shared [workspace instructions](../AGENTS.md) if they have not already been loaded. This file supplies project-specific overrides. If the shared file is absent in a standalone clone, continue with this file.
+
 - Communicate with the user in Russian unless they request another language.
 - Preserve unrelated changes and never publish, delete, or rewrite data without an explicit request.
 - The canonical repository is https://github.com/gavrevnik/Jobs-checker.
