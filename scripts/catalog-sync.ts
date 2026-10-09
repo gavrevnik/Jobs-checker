@@ -1,3 +1,6 @@
+import { parse } from 'dotenv';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 const python =
@@ -6,12 +9,20 @@ const python =
 const script = fileURLToPath(
   new URL('../../personal-radar/scripts/catalog_sync.py', import.meta.url),
 );
-const database = process.env.SCOUT_DB || '../data/jobs-checker/scout.sqlite';
+const root = fileURLToPath(new URL('../', import.meta.url));
+let configuredDatabase: string | undefined;
+try {
+  configuredDatabase = parse(readFileSync(new URL('../.env', import.meta.url))).SCOUT_DB;
+} catch {}
+const database = resolve(
+  root,
+  process.env.SCOUT_DB || configuredDatabase || '../data/jobs-checker/scout.sqlite',
+);
 const args = process.argv.slice(2);
 const child = spawn(
   python,
   [script, args.shift() || 'status', '--app', 'jobs-checker', '--database', database, ...args],
-  { stdio: 'inherit' },
+  { stdio: 'inherit', cwd: root },
 );
 child.on('error', (e) => {
   console.error(e.message);
