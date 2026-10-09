@@ -1,3 +1,4 @@
+import { catalogSchema, radarIdFor } from '../../personal-radar/catalog_sync/node.js';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
@@ -79,6 +80,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS source_runs (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS job_observations (source_id TEXT NOT NULL, external_id TEXT NOT NULL, job_id TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, missing_count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(source_id,external_id));
       `);
+    this.db.exec(catalogSchema());
     const requestColumns = this.db.prepare('PRAGMA table_info(provider_requests)').all();
     for (const [name, definition] of [
       ['scope', "TEXT NOT NULL DEFAULT ''"],
@@ -105,6 +107,10 @@ export class Store {
   }
   decode<T>(table: string, json: string): T {
     const data = JSON.parse(json);
+    if (table === 'companies' || table === 'sources') {
+      const radarId = radarIdFor(this.db, table, String(data.id));
+      if (radarId) data.radarId = radarId;
+    }
     return (
       table === 'companies'
         ? { ...data, ...companySchema.parse(data) }

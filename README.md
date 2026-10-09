@@ -8,7 +8,7 @@
 
 npm использует `file:../personal-radar/connectors/connectors-ts` и именованные импорты `@personal-radar/connectors/...`. Обычные install/dev/start/build/check/test и MCP-команды автоматически собирают библиотеку; при первом setup устанавливаются её lockfile-зависимости. Ручные symlink не нужны.
 
-SQLite-файлы, текущие карточки/профили/оценки и API/MCP/UI контракты сохранены. Долгосрочные отобранные sources/owners/items/preferences принадлежат Personal Radar Knowledge; существующие локальные данные пока не мигрируют. Discovery сохраняет source-кандидатов с identity/provenance/relevance и явным review; подтверждённые источники предназначены для будущего отдельного переноса в Knowledge. Автоматических Knowledge writes/двустороннего sync нет.
+SQLite-файлы, текущие карточки/профили/оценки и API/MCP/UI контракты сохранены. Долгосрочные отобранные sources/owners/items/preferences принадлежат Personal Radar Knowledge; существующие локальные данные пока не мигрируют. Discovery сохраняет source-кандидатов с identity/provenance/relevance и явным review; подтверждённые источники предназначены для будущего отдельного переноса в Knowledge. Ручной versioned catalog sync и outbox для явно определённых канонических полей описаны в [Catalog Sync](../personal-radar/docs/catalog-sync.md); новые кандидаты требуют утверждённого manifest.
 
 ## Источники → MCP → ATS
 
@@ -200,3 +200,9 @@ docs/                 исследование источников, API, сле
 ## Память поиска
 
 После исследовательской сессии стратегия, точные параметры запросов, результаты, рекомендации и ID добавленных вакансий сохраняются в SQLite `discovery_reviews`. MCP `jobs_discovery_history` читает историю перед следующим поиском; `jobs_discovery_save` создаёт или обновляет summary по стабильному ID. История не обрезается вместе с техническими логами. Она входит в резервную копию SQLite; обычный JSON-экспорт ATS пока её не включает.
+
+## Personal Radar Catalog Sync
+
+[Архитектура, ownership и команды](../personal-radar/docs/catalog-sync.md). Каталог отображает время последнего sync; глобальный интерес к связанным источникам редактируется отдельно от локального мониторинга. Отправка outbox — отдельный ручной `flush`; запуск приложения не обращается к GitHub. Новые/conflicting записи остаются pending до review.
+
+CLI: `npm run catalog:sync -- status`, `pull --dry-run`, `pull`, `flush --dry-run`. `audit --manifest <private-path>` готовит review; `materialize --radar-id <id>` создаёт только выбранное локальное представление с мониторингом выключенным.

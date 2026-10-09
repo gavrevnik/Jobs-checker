@@ -1,3 +1,4 @@
+import { CatalogPanel } from './CatalogPanel';
 import { useEffect, useState } from 'react';
 import {
   ArrowUpRight,
@@ -163,6 +164,7 @@ export function SourcesPage({
   };
   return (
     <div className="connections-page">
+      <CatalogPanel />
       <div className="connection-tabs" aria-label="Разделы источников">
         {tabs.map(({ id, title, icon: Icon }) => (
           <button
