@@ -1,3 +1,4 @@
+import { fetchPosting } from '@personal-radar/connectors/smartrecruiters';
 import { z } from 'zod';
 import { adzunaSearchParams, hasAdzunaQuery } from '../shared/adzuna.js';
 import {
@@ -390,22 +391,11 @@ export class SourceTools {
     if (!args.execute) return { execute: false, jobId: job.id, maxRequests: 1 };
     const budget = { used: 0, limit: 1, cacheHits: 0, observedAt: '' };
     try {
-      const response = await meteredFetcher(
-        this.store,
-        source.provider,
-        budget,
-        this.fetcher,
-      )(
-        `https://api.smartrecruiters.com/v1/companies/${encodeURIComponent(source.board)}/postings/${encodeURIComponent(job.externalId)}`,
-        {
-          redirect: 'error',
-          signal: AbortSignal.timeout(25000),
-          headers: { Accept: 'application/json' },
-        },
+      const data = await fetchPosting(
+        source.board,
+        job.externalId,
+        meteredFetcher(this.store, source.provider, budget, this.fetcher),
       );
-      if (!response.ok) throw new Error(`Источник вернул HTTP ${response.status}`);
-      const data = await response.json();
-      if (String(data.id) !== job.externalId) throw new Error('ID ответа не совпадает с вакансией');
       const normalized = normalize('smartrecruiters', data, source);
       return this.store.transaction(() => this.store.addJob(normalized, source.id, true));
     } catch (e) {
