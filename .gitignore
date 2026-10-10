@@ -10,4 +10,6 @@ artifacts/
 
 # Static UI geography is source data, not runtime SQLite storage.
 !src/data/
+src/data/*
 !src/data/geography.json
+!src/data/README.md
