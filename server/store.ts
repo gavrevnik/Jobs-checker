@@ -1,4 +1,4 @@
-import { catalogSchema, radarIdFor } from '../../personal-radar/catalog_sync/node.js';
+import { catalogSchema, radarIdFor } from '@personal-radar/connectors/catalog-sync';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';

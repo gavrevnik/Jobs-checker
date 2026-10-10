@@ -4,7 +4,7 @@ import {
   catalogLinks,
   catalogStatus,
   setCatalogInterest,
-} from '../../personal-radar/catalog_sync/node';
+} from '@personal-radar/connectors/catalog-sync';
 it('keeps CRM state local while canonical interest goes into a coalesced outbox', () => {
   const store = new Store(':memory:');
   try {
