@@ -9,6 +9,10 @@ import { discoveryReviewSchema, discoveryHistorySchema } from '../shared/discove
 import { importSchema } from '../server/store.js';
 import { researchImportSchema, observationSchema } from '../shared/company-research.js';
 import { stages } from '../shared/model.js';
+import { cultureAssessmentSchema } from '../shared/company-culture-fit.js';
+import { fitAssessmentSchema } from '../shared/company-fit.js';
+import { selectionInputSchema } from '../shared/selection-profile.js';
+import { paidOperationSchema } from '../shared/research-paid.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 config({ path: `${root}.env`, quiet: true });
@@ -85,17 +89,23 @@ server.registerTool(
 server.registerTool(
   'jobs_profiles',
   {
-    description: 'Read local search profiles and companies for profileId/companyId selection.',
+    description:
+      'Read the single professional core, availability scenarios, effective profile and companies. Use scenarioId for search/monitoring/research; all means no geographic constraint. Legacy profiles are retained for history.',
     inputSchema: {},
     annotations: { readOnlyHint: true },
   },
   async () => {
     const result = await call('/state');
     if (result.isError) return result;
-    const { profiles, companies } = result.structuredContent;
+    const { profiles, companies, selection, effectiveProfile } = result.structuredContent;
     return {
-      content: [{ type: 'text' as const, text: JSON.stringify({ profiles, companies }) }],
-      structuredContent: { profiles, companies },
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({ profiles, companies, selection, effectiveProfile }),
+        },
+      ],
+      structuredContent: { profiles, companies, selection, effectiveProfile },
     };
   },
 );
@@ -124,6 +134,7 @@ server.registerTool(
       'Plan or run due company boards, with full snapshots, saved profile filters and safe missing detection. execute=false by default. No scheduler is installed.',
     inputSchema: {
       sourceIds: z.array(z.string()).max(50).default([]),
+      scenarioId: z.string().max(100).optional(),
       execute: z.boolean().default(false),
       maxRequests: z.number().int().min(1).max(100).default(30),
     },
@@ -201,11 +212,13 @@ const researchContext = {
     .regex(/^[A-Z]{2}$/)
     .optional(),
   profileId: z.string().max(100).optional(),
+  scenarioId: z.string().max(100).optional(),
 };
-const query = (args: { country?: string; profileId?: string }) => {
+const query = (args: { country?: string; profileId?: string; scenarioId?: string }) => {
   const params = new URLSearchParams();
   if (args.country) params.set('country', args.country);
   if (args.profileId) params.set('profileId', args.profileId);
+  if (args.scenarioId) params.set('scenarioId', args.scenarioId);
   return params.size ? `?${params}` : '';
 };
 server.registerTool(
@@ -301,6 +314,9 @@ server.registerTool(
       companyId: z.string().min(1),
       priority: z.enum(['Target', 'Secondary', 'Practice', 'Unassigned']),
       notes: z.string().max(30000),
+      practiceGoal: z.string().max(300).optional(),
+      practiceReflection: z.string().max(2000).optional(),
+      practiceHours: z.number().min(0).max(100).nullable().optional(),
     },
   },
   ({ companyId, ...args }) =>
@@ -310,9 +326,10 @@ server.registerTool(
   'jobs_company_research_plan',
   {
     description:
-      'Read coverage/gaps, saved jobMaterials (including closed/stale descriptions with original dates and role scope), prioritised public-source queries, interview follow-ups and paid suggestions. Historical job materials are not current company conditions. Does not call providers. Paid Actors are unavailable until separately connected with a hard budget and explicit one-use consent.',
+      'Read coverage/gaps, saved jobMaterials (including closed/stale descriptions with original dates and role scope), prioritised public-source queries, interview follow-ups and paid suggestions. Historical job materials are not current company conditions. Does not call providers. Glassdoor reviews/interviews use jobs_company_paid_* with configured credentials, a hard budget and explicit one-use consent. Other paid Actors remain unavailable.',
     inputSchema: {
       companyId: z.string().min(1),
+      scenarioId: z.string().max(100).optional(),
       country: z
         .string()
         .regex(/^[A-Z]{2}$/)
@@ -351,4 +368,126 @@ server.registerTool(
   ({ flagId, ...decision }) =>
     call(`/company-research/flags/${encodeURIComponent(flagId)}`, decision, 'PATCH'),
 );
+
+server.registerTool(
+  'jobs_selection_update',
+  {
+    description:
+      'Update the professional core and availability scenarios after a user request. expectedVersion prevents overwriting concurrent edits. Previous versions and legacy profiles remain. Changing geography does not change company quality scores.',
+    inputSchema: selectionInputSchema.shape,
+  },
+  (args) => call('/selection', args, 'PATCH'),
+);
+server.registerTool(
+  'jobs_company_assess',
+  {
+    description:
+      'Save a concise business/analytics synthesis and six evidence-backed ratings for an existing company in an authorized research task. Read jobs_profiles and company research first. Use reviewed observation IDs from this company, a compatible scope and current coreVersion as profileVersion. Unknown is null; job requirements alone are capped at 2/4. Never infer maturity from tools or publications. Appends history; does not verify facts or choose a personal queue.',
+    inputSchema: { companyId: z.string().min(1), assessment: fitAssessmentSchema },
+  },
+  ({ companyId, assessment }) =>
+    call(`/company-research/${encodeURIComponent(companyId)}/assessment`, assessment),
+);
+server.registerTool(
+  'jobs_company_culture_plan',
+  {
+    description:
+      'Plan independent Culture and Team research: read saved evidence, separate company expertise and specific teams, and identify gaps. No provider calls or writes.',
+    inputSchema: { companyId: z.string().min(1) },
+    annotations: { readOnlyHint: true },
+  },
+  ({ companyId }) => call(`/company-research/${encodeURIComponent(companyId)}/culture-plan`),
+);
+server.registerTool(
+  'jobs_company_culture_assess',
+  {
+    description:
+      'Append evidence-backed Culture and Team assessment in authorized research. Use current coreVersion and reviewed non-job observations. Preserve publication dates for historical expertise; rate company and each explicitly scoped team separately. No automatic personal queue changes.',
+    inputSchema: { companyId: z.string().min(1), assessment: cultureAssessmentSchema },
+  },
+  ({ companyId, assessment }) =>
+    call(`/company-research/${encodeURIComponent(companyId)}/culture-assessment`, assessment),
+);
+server.registerTool(
+  'jobs_company_assessment_history',
+  {
+    description: 'Read previous company suitability assessments without changing them.',
+    inputSchema: { companyId: z.string().min(1) },
+    annotations: { readOnlyHint: true },
+  },
+  ({ companyId }) => call(`/company-research/${encodeURIComponent(companyId)}/assessments`),
+);
+
+server.registerTool(
+  'jobs_company_paid_status',
+  {
+    description:
+      'Read configured paid company-research adapters, credential names and per-run limits. No provider calls. Glassdoor reviews/interviews are explicit-request only; never automatic discovery/monitoring fallback.',
+    inputSchema: {},
+    annotations: { readOnlyHint: true },
+  },
+  () => call('/company-research/paid'),
+);
+server.registerTool(
+  'jobs_company_paid_quote',
+  {
+    description:
+      'Read current public Apify pricing for an exact operation; no Actor run or grant. Glassdoor: actor=memo23/glassdoor-scraper-ppr, operation=reviews|interviews, exactly one companyId, volume 1..200, parameters={companyUrl,startDate?}, maxCostUsd required. Cap covers the run; dataset downloads disabled. Verify employer identity and warn about shared account credits before requesting a run.',
+    inputSchema: { operation: paidOperationSchema },
+    annotations: { readOnlyHint: true },
+  },
+  (args) => call('/company-research/paid/quote', args),
+);
+server.registerTool(
+  'jobs_company_paid_authorize',
+  {
+    description:
+      'Create one-use consent ONLY after the user explicitly requests this paid run with the exact company, Actor, operation, URL, volume, date filter and maximum USD cost. Installation/general company research is not consent. Rechecks current pricing; does not run the Actor.',
+    inputSchema: { operation: paidOperationSchema, confirmed: z.literal(true) },
+  },
+  (args) => call('/company-research/paid/authorize', args),
+);
+server.registerTool(
+  'jobs_company_paid_execute',
+  {
+    description:
+      'Start one explicitly authorized paid run using the same exact operation and unused grantId. Apify hard cap, fixed 1GB/120s, no retries or paid extras. Returns ledgerId and run/dataset Console links, never downloads dataset. Timeout/unknown outcome consumes consent: inspect history and Console, never repeat automatically.',
+    inputSchema: { operation: paidOperationSchema, grantId: z.string().uuid() },
+    annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  (args) => call('/company-research/paid/execute', args),
+);
+server.registerTool(
+  'jobs_company_paid_runs',
+  {
+    description:
+      'Read the last 20 local paid-run records, or one ledgerId. No provider calls. Unknown costs stay null; reported run costs are provisional.',
+    inputSchema: { ledgerId: z.string().uuid().optional() },
+    annotations: { readOnlyHint: true },
+  },
+  ({ ledgerId }) => call(`/company-research/paid/runs${ledgerId ? `/${ledgerId}` : ''}`),
+);
+server.registerTool(
+  'jobs_company_paid_refresh',
+  {
+    description:
+      'Explicitly check metadata/cost of a saved Apify run with one GET. Never starts/retries an Actor or downloads a dataset. Updates local ledger; billing snapshots remain provisional. Requires a saved runId.',
+    inputSchema: { ledgerId: z.string().uuid() },
+  },
+  ({ ledgerId }) => call(`/company-research/paid/runs/${ledgerId}/refresh`, {}),
+);
+server.registerTool(
+  'jobs_company_paid_normalize',
+  {
+    description:
+      'Offline processing of user-exported Glassdoor dataset JSON for a saved ledgerId. Pass flat rows (at most the authorized volume). No provider calls, imports or verification. Returns P01/P07_INTERVIEW research materials with provenance, dates, role and rejected rows. Read and review before saving observations via existing research workflow; candidate reports are not official company policy.',
+    inputSchema: {
+      ledgerId: z.string().uuid(),
+      rows: z.array(z.record(z.string(), z.json())).max(200),
+    },
+    annotations: { readOnlyHint: true },
+  },
+  ({ ledgerId, rows }) => call(`/company-research/paid/runs/${ledgerId}/normalize`, { rows }),
+);
+
 await server.connect(new StdioServerTransport());

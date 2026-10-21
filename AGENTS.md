@@ -15,6 +15,7 @@ When this checkout is inside `life-stack`, first read the shared [workspace inst
 ## Ручные Jobs workflows
 
 - Новые компании и повторный ресерч: [jobs-discovery](.agents/skills/jobs-discovery/SKILL.md).
+- Независимая культура и команды: [jobs-culture-research](.agents/skills/jobs-culture-research/SKILL.md).
 - Вакансии известных компаний: [jobs-monitoring](.agents/skills/jobs-monitoring/SKILL.md).
 - Пересмотр пула и предложения резерва/архива: [jobs-pool-review](.agents/skills/jobs-pool-review/SKILL.md).
 - [Общие правила](discovery/workflow-common.md) и [Careers/ATS/веб-источники](discovery/hiring-sources.md) сохраняют единые контракты. Скиллы не включают расписание автоматически.

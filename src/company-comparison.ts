@@ -153,6 +153,9 @@ export function headquartersBadges(hq: ComparisonProfile['headquarters']) {
         : ['US', 'CA', 'GB', 'IE'].includes(code)
           ? 'hq-purple'
           : 'hq-green',
-    title: `Основной офис / штаб-квартира: ${countryNames.of(code) || code}. Подтверждено источником. Города открытых целевых вакансий показаны отдельно.`,
+    title: `Штаб квартира: ${countryNames.of(code) || code}. Подтверждено источником. Города открытых целевых вакансий показаны отдельно.`,
   }));
+}
+export function comparisonScoreMatches(score: number | null, minimum: string) {
+  return minimum === '' || (score !== null && score > Number(minimum));
 }

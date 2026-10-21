@@ -8,8 +8,8 @@ import type { Company } from '../shared/model';
 import { CompanyHiringLinks } from './CompanyHiringLinks';
 
 const states = {
-  open: 'Открыта',
-  closed: 'Архив / снята с публикации',
+  open: 'Открытая',
+  closed: 'Закрытая',
   stale: 'Требует перепроверки',
   unverified: 'Не проверена',
 };
@@ -63,6 +63,8 @@ export function TargetVacanciesModal({
             <div className="target-vacancies-heading">
               <span>Всего найдено {data.total}</span>
               <strong className="target-open">Открытые {data.open}</strong>
+              <strong className="target-closed">Закрытые {data.closed}</strong>
+              {data.needsReview > 0 && <span>Требуют проверки {data.needsReview}</span>}
               <button
                 className="button"
                 disabled={!data.jobIds.length}
@@ -75,9 +77,9 @@ export function TargetVacanciesModal({
               </button>
             </div>
             <p className="target-vacancies-help">
-              Middle / Senior Product Analyst и Data Analyst · все сохранённые даты. «Открыта» —
-              публикация проверена за последние 30 дней; старые и непроверенные записи сохранены
-              отдельно.
+              Роли по текущему профессиональному профилю и сценарию доступности. Открытые — по
+              сохранённым проверкам за последние 30 дней. Закрытые — архивные или исчезнувшие из
+              источников в двух проверках. Устаревшие и непроверенные записи показаны отдельно.
             </p>
             {data.jobs.length ? (
               <ul className="target-vacancy-list">
@@ -105,12 +107,22 @@ export function TargetVacanciesModal({
                       )}
                     </div>
                     <small>
-                      {job.location || '—'} · {job.targetLevel} ·{' '}
+                      {job.location || '—'} ·{' '}
+                      {job.targetLevel === 'review' ? 'Уровень уточнить' : job.targetLevel} ·{' '}
                       <span className={job.availability.state === 'open' ? 'target-open' : ''}>
                         {states[job.availability.state]}
                       </span>{' '}
                       · проверено {checkedDate(job.availability.checkedAt)}
                     </small>
+                    {job.scenarioFit.status !== 'not_selected' && (
+                      <p className="scenario-job-status">
+                        {job.scenarioFit.label}
+                        {[...job.scenarioFit.blockers, ...job.scenarioFit.questions].length
+                          ? ': ' +
+                            [...job.scenarioFit.blockers, ...job.scenarioFit.questions].join('; ')
+                          : ''}
+                      </p>
+                    )}
                     <p>{shortSentences(job.description, 2, 350) || '—'}</p>
                   </li>
                 ))}
@@ -118,6 +130,44 @@ export function TargetVacanciesModal({
             ) : (
               <p>—</p>
             )}
+            <section className="checked-sources" aria-labelledby="checked-sources-title">
+              <h3 id="checked-sources-title">Список проверенных источников</h3>
+              <p className="target-vacancies-help">
+                Последние сохранённые проверки компании. Результаты относятся к фильтрам и дате
+                запуска; 0 результатов не означает, что вакансий нигде нет.
+              </p>
+              {data.checkedSources.length ? (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Источник</th>
+                      <th>Результат</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.checkedSources.map((source) => (
+                      <tr key={source.id}>
+                        <td>
+                          {source.url ? (
+                            <a href={source.url} target="_blank" rel="noreferrer">
+                              {source.name}
+                            </a>
+                          ) : (
+                            source.name
+                          )}
+                          <small>{checkedDate(source.checkedAt)}</small>
+                        </td>
+                        <td className={source.error ? 'source-check-error' : ''}>
+                          {source.result}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p>Проверки источников для этой компании ещё не сохранены.</p>
+              )}
+            </section>
             {company && <CompanyHiringLinks company={company} />}
           </>
         )}

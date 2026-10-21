@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { locationMatch, professionalRole } from './job-fit.js';
 import { adzunaSearchSchema } from './adzuna.js';
 import { keywordTerms, type JobInput, type Profile } from './model.js';
 
@@ -201,6 +202,13 @@ export const webSources = [
 ];
 const terms = z.array(z.string().trim().min(1).max(200)).max(30);
 export const searchSchema = z.object({
+  scenarioId: z
+    .string()
+    .max(100)
+    .optional()
+    .describe(
+      'Availability scenario ID from jobs_profiles; all = professional core without geography. Overrides legacy profileId.',
+    ),
   adzuna: adzunaSearchSchema
     .optional()
     .describe(
@@ -257,6 +265,7 @@ export function acceptsJob(job: JobInput, input: SearchInput, profile?: Profile)
   const haystack = [job.title, job.company, job.description, ...job.tags].join(' ').toLowerCase();
   // Keyword groups are discovery alternatives; | separates synonyms within a group.
   if (
+    (!profile?.selection?.roleFamilies.length || input.keywords !== undefined) &&
     f.keywords.length &&
     !f.keywords.some((k) => keywordTerms(k).some((t) => haystack.includes(t.toLowerCase())))
   )
@@ -264,12 +273,25 @@ export function acceptsJob(job: JobInput, input: SearchInput, profile?: Profile)
   if (f.exclude.some((k) => keywordTerms(k).some((t) => haystack.includes(t.toLowerCase()))))
     return false;
   if (
-    f.locations.length &&
-    !f.locations.some((l) => job.location.toLowerCase().includes(l.toLowerCase()))
+    profile?.selection &&
+    professionalRole(job, { ...profile, seniority: f.seniority }) === 'excluded'
   )
     return false;
-  if (f.workMode !== 'any' && job.workMode !== f.workMode) return false;
   if (
+    f.locations.length &&
+    (profile?.selection
+      ? locationMatch(job.location, f.locations) === 'mismatch'
+      : !f.locations.some((l) => job.location.toLowerCase().includes(l.toLowerCase())))
+  )
+    return false;
+  if (
+    f.workMode !== 'any' &&
+    job.workMode !== f.workMode &&
+    !(profile?.selection && job.workMode === 'unknown')
+  )
+    return false;
+  if (
+    !profile?.selection &&
     f.seniority !== 'any' &&
     (f.seniority === 'middle_plus'
       ? !['middle', 'senior', 'lead'].includes(job.seniority)
@@ -278,6 +300,7 @@ export function acceptsJob(job: JobInput, input: SearchInput, profile?: Profile)
     return false;
   if (
     f.minSalary !== null &&
+    !(profile?.selection && input.minSalary === undefined && job.salaryMin === null) &&
     (job.salaryMin === null ||
       job.currency.toUpperCase() !== f.currency.toUpperCase() ||
       job.salaryPeriod !== f.salaryPeriod ||
@@ -351,6 +374,9 @@ export type ProviderQuota = {
   windows: QuotaWindow[];
 };
 export type SourceRun = {
+  companyId?: string;
+  sourceName?: string;
+  selection?: Profile['selection'];
   id: string;
   provider: string;
   sourceId: string;

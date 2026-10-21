@@ -80,7 +80,7 @@ export function companyPresentation(company: Company, observations: StoredObserv
     businessType: company.companyType === 'other' ? '' : companyTypeLabels[company.companyType],
     size: compactCompanySize(company),
     tagline: shortSentences(description) || '—',
-    description: shortSentences(description, 3, 700) || '—',
+    description: shortSentences(description, 2, 360) || '—',
     blogs: [...blogs.values()],
   };
 }

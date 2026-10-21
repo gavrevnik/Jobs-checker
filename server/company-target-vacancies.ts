@@ -1,4 +1,14 @@
-import { canonicalUrl, providerLabels, type Job, type Source } from '../shared/model.js';
+import {
+  canonicalUrl,
+  providerLabels,
+  type Job,
+  type Source,
+  type Profile,
+} from '../shared/model.js';
+import { acceptsJob, searchSchema } from '../shared/source-tools.js';
+import { scenarioFit } from '../shared/job-fit.js';
+import type { Scenario } from '../shared/selection-profile.js';
+import type { StoredObservation } from '../shared/company-research.js';
 import {
   jobAvailability,
   targetLevel,
@@ -28,8 +38,16 @@ export function companyTargetVacancies(
   allSources: Source[],
   observations: JobPresence[],
   now = Date.now(),
+  profile?: Profile,
+  scenario?: Scenario,
+  research: StoredObservation[] = [],
 ) {
-  const matching = allJobs.filter((j) => j.companyId === companyId && targetLevel(j));
+  const matching = allJobs.filter(
+    (j) =>
+      j.companyId === companyId &&
+      targetLevel(j, profile) &&
+      (!profile || acceptsJob(j, searchSchema.parse({}), profile)),
+  );
   // ATS IDs are the navigation contract; a repeated URL never inflates the counters.
   const grouped = new Map<string, Job[]>();
   for (const job of matching) {
@@ -49,8 +67,9 @@ export function companyTargetVacancies(
       return {
         ...j,
         atsJobIds: copies.map((c) => c.id),
-        targetLevel: targetLevel(j)!,
+        targetLevel: targetLevel(j, profile)!,
         availability,
+        scenarioFit: scenarioFit(j, scenario, research),
         openCityIds: copies
           .filter((c) => jobAvailability(c, observations, now).state === 'open')
           .flatMap((c) => locateJob(c.location))
@@ -72,12 +91,14 @@ export function companyTargetVacancies(
         a.title.localeCompare(b.title),
     );
   const offices = new Map<string, { id: string; name: string; country: string; open: boolean }>();
+  const closedOffices = new Map<string, { id: string; name: string; country: string }>();
   for (const job of jobs)
     for (const city of job.cities) {
       offices.set(city.id, {
         ...city,
         open: !!offices.get(city.id)?.open || job.openCityIds.includes(city.id),
       });
+      if (job.availability.state === 'closed') closedOffices.set(city.id, city);
     }
   const sources = new Map<string, { id: string; label: string; url: string; updatedAt: string }>();
   const add = (id: string, label: string, url: string, updatedAt: string) => {
@@ -130,15 +151,29 @@ export function companyTargetVacancies(
     }
   }
   return {
-    contract: targetVacancyContract,
+    contract: profile?.selection?.roleFamilies.length
+      ? {
+          ...targetVacancyContract,
+          version: '2.0',
+          roleFamilies: profile.selection.roleFamilies,
+          profileVersion: profile.selection.version,
+          scenarioId: profile.selection.scenarioId,
+        }
+      : targetVacancyContract,
     companyId,
     total: jobs.length,
     open: jobs.filter((j) => j.availability.state === 'open').length,
+    closed: jobs.filter((j) => j.availability.state === 'closed').length,
+    needsReview: jobs.filter((j) => ['stale', 'unverified'].includes(j.availability.state)).length,
     jobIds: jobs.map((j) => j.id),
     jobs,
     offices: [...offices.values()].sort(
       (a, b) => Number(b.open) - Number(a.open) || a.name.localeCompare(b.name),
     ),
+    openOffices: [...offices.values()]
+      .filter((o) => o.open)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    closedOffices: [...closedOffices.values()].sort((a, b) => a.name.localeCompare(b.name)),
     sources: [...sources.values()],
   };
 }

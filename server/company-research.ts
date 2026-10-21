@@ -1,6 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import {
+  companyFit,
+  fitAssessmentSchema,
+  validateFitEvidence,
+  type FitAssessment,
+} from '../shared/company-fit.js';
 import type { Store } from './store.js';
+import {
+  cultureAssessmentSchema,
+  validateCultureEvidence,
+  type CultureAssessment,
+} from '../shared/company-culture-fit.js';
 import type { Company, Job, Profile, Source } from '../shared/model.js';
 import { companyTargetVacancies } from './company-target-vacancies.js';
 import { companyJobMaterials } from '../shared/company-job-materials.js';
@@ -11,6 +22,8 @@ import {
   type ResearchScoreSnapshot,
 } from './company-research-scores.js';
 import { companyColumnSources } from '../shared/company-provenance.js';
+import { companySourceChecks } from '../shared/company-source-checks.js';
+import type { CollectionSource } from '../shared/company-provenance.js';
 import {
   registry,
   headquartersProfile,
@@ -388,13 +401,29 @@ export class CompanyResearch {
       .strictObject({
         priority: z.enum(['Target', 'Secondary', 'Practice', 'Unassigned']),
         notes: z.string().max(30000),
+        practiceGoal: z.string().max(300).optional(),
+        practiceReflection: z.string().max(2000).optional(),
+        practiceHours: z.number().min(0).max(100).nullable().optional(),
       })
       .parse(input);
-    this.store.db
-      .prepare(
-        'INSERT INTO company_research_preferences VALUES (?,?) ON CONFLICT(company_id) DO UPDATE SET data=excluded.data',
-      )
-      .run(companyId, JSON.stringify(value));
+    const old = this.store.db
+      .prepare('SELECT data FROM company_research_preferences WHERE company_id=?')
+      .get(companyId);
+    const merged = { ...(old ? JSON.parse(String(old.data)) : {}), ...value };
+    this.store.transaction(() => {
+      this.store.db
+        .prepare('INSERT INTO company_queue_history (company_id,data,at) VALUES (?,?,?)')
+        .run(
+          companyId,
+          JSON.stringify({ before: old ? JSON.parse(String(old.data)) : null, after: merged }),
+          now(),
+        );
+      this.store.db
+        .prepare(
+          'INSERT INTO company_research_preferences VALUES (?,?) ON CONFLICT(company_id) DO UPDATE SET data=excluded.data',
+        )
+        .run(companyId, JSON.stringify(merged));
+    });
     return this.profile(companyId);
   }
   history(companyId = '') {
@@ -406,6 +435,81 @@ export class CompanyResearch {
         (r) =>
           !companyId || r.companies.some((c: { companyId: string }) => c.companyId === companyId),
       );
+  }
+  assess(companyId: string, input: unknown) {
+    this.company(companyId);
+    const data = fitAssessmentSchema.parse(input);
+    const selection = this.store.selection.read();
+    if (data.profileVersion !== selection.coreVersion)
+      throw new Error('Профессиональное ядро изменилось. Прочитайте актуальный профиль.');
+    validateFitEvidence(data, this.observations(companyId));
+    const assessment = {
+      ...data,
+      weights: selection.core.weights,
+      id: randomUUID(),
+      createdAt: now(),
+    };
+    this.store.db
+      .prepare('INSERT INTO company_fit_assessments VALUES (?,?,?,?)')
+      .run(assessment.id, companyId, JSON.stringify(assessment), assessment.createdAt);
+    return this.profile(companyId);
+  }
+  assessmentHistory(companyId: string) {
+    this.company(companyId);
+    return this.store.db
+      .prepare('SELECT data FROM company_fit_assessments WHERE company_id=? ORDER BY rowid DESC')
+      .all(companyId)
+      .map((r) => JSON.parse(String(r.data)) as FitAssessment | CultureAssessment);
+  }
+  assessCulture(companyId: string, input: unknown) {
+    this.company(companyId);
+    const data = cultureAssessmentSchema.parse(input);
+    const selection = this.store.selection.read();
+    if (data.profileVersion !== selection.coreVersion)
+      throw Error('Профессиональное ядро изменилось. Прочитайте актуальный профиль.');
+    validateCultureEvidence(data, this.observations(companyId));
+    const assessment = {
+      ...data,
+      weights: selection.core.weights,
+      id: randomUUID(),
+      createdAt: now(),
+    };
+    this.store.db
+      .prepare('INSERT INTO company_fit_assessments VALUES (?,?,?,?)')
+      .run(assessment.id, companyId, JSON.stringify(assessment), assessment.createdAt);
+    return this.profile(companyId);
+  }
+  culturePlan(companyId: string) {
+    const p = this.profile(companyId, '', 'all');
+    return {
+      mode: 'culture_team',
+      company: p.company,
+      selection: this.store.selection.read(),
+      fit: p.fit,
+      observations: p.observations.filter((o) =>
+        /^(AN|T|B04|B05|B06|P03_PUBLIC|P06)/.test(o.criterion_id),
+      ),
+      assessments: this.assessmentHistory(companyId),
+      questions: [
+        'Какое продуктовое решение изменилось после исследования?',
+        'Кто проверяет дизайн эксперимента и выводы аналитика?',
+        'Какие практики описаны исторически, а какие подтверждены сейчас?',
+        'К какой команде относится каждый факт и кто будет ближайшим коллегой?',
+      ],
+      sourceQueries: [
+        'product analytics experimentation case study',
+        'data team methodology review mentoring',
+        'engineering blog conference experiment decision',
+        'analytics platform postmortem',
+      ].map((q) => `${p.company.name} ${q}`),
+      workflow: [
+        'Прочитать прежние факты и историю, включая датированные материалы вне вакансий',
+        'Найти и прочитать источники о практике и людях; сохранить границы подразделений',
+        'Импортировать observations с датами и выполнить review',
+        'Сохранить company и отдельные teams через jobs_company_culture_assess',
+      ],
+      note: 'План не запускает сеть, мониторинг вакансий или LLM. Ресерч выполняется независимо от наличия открытых ролей; очереди не меняются.',
+    };
   }
   reviewFlag(id: string, input: unknown) {
     const decision = z
@@ -468,8 +572,7 @@ export class CompanyResearch {
     const observationsByCompany = group(observations, (o) => o.companyId);
     const companyByObservation = new Map(observations.map((o) => [o.id, o.companyId]));
     const companyByJob = new Map(jobs.map((j) => [j.id, j.companyId]));
-    const profile = profileId ? this.store.get<Profile>('profiles', profileId) : undefined;
-    if (profileId && !profile) throw new Error('Профиль поиска не найден');
+    const profile = this.store.selection.profile(profileId || undefined);
     const historyByCompany = new Map<string, ReturnType<CompanyResearch['history']>>();
     for (const run of this.history())
       for (const id of new Set<string>(
@@ -479,7 +582,25 @@ export class CompanyResearch {
         history.push(run);
         historyByCompany.set(id, history);
       }
+    const profileVersions = new Map(
+      this.store.selection.history().map((v) => [v.coreVersion, v.core.weights]),
+    );
     return {
+      selection: this.store.selection.read(),
+      assessments: new Map(
+        this.store.db
+          .prepare('SELECT company_id,data FROM company_fit_assessments ORDER BY rowid ASC')
+          .all()
+          .map((r): [string, FitAssessment | CultureAssessment] => {
+            const value = JSON.parse(String(r.data)) as FitAssessment | CultureAssessment;
+            return [
+              String(r.company_id),
+              'kind' in value
+                ? value
+                : { ...value, weights: value.weights || profileVersions.get(value.profileVersion) },
+            ];
+          }),
+      ),
       companies,
       companyById: new Map(companies.map((c) => [c.id, c])),
       jobsByCompany: group(jobs, (j) => j.companyId),
@@ -490,6 +611,7 @@ export class CompanyResearch {
       profile,
       historyByCompany,
       sources: this.store.list<Source>('sources'),
+      sourceRuns: this.store.latestSourceRuns(),
       preferences: new Map(
         this.store.db
           .prepare('SELECT * FROM company_research_preferences')
@@ -618,6 +740,10 @@ export class CompanyResearch {
         lastSeenAt: String(o.lastSeenAt),
         missingCount: Number(o.missingCount),
       })),
+      Date.now(),
+      profile,
+      context.selection.scenarios.find((s) => s.id === profile.selection?.scenarioId),
+      observations,
     );
     const columnSources = companyColumnSources(
       company,
@@ -627,6 +753,8 @@ export class CompanyResearch {
       history,
     );
     return {
+      fit: companyFit(observations, context.selection, context.assessments.get(companyId)),
+      searchContext: profile?.selection,
       company,
       headquarters: headquartersProfile(observations),
       observations,
@@ -636,7 +764,26 @@ export class CompanyResearch {
       flags,
       jobs,
       currentJobs,
-      targetVacancies,
+      targetVacancies: {
+        ...targetVacancies,
+        checkedSources: companySourceChecks(
+          companyId,
+          context.sources,
+          context.sourceRuns,
+          history.flatMap((run) =>
+            (run.document?.companies || [])
+              .filter((c: ResearchImport['companies'][number]) =>
+                c.identity.company_id
+                  ? c.identity.company_id === companyId
+                  : c.identity.name === company.name,
+              )
+              .flatMap(
+                (c: ResearchImport['companies'][number]): CollectionSource[] =>
+                  c.collection_sources || [],
+              ),
+          ),
+        ),
+      },
       columnSources,
       confirmed,
       lastResearchAt,
@@ -669,8 +816,8 @@ export class CompanyResearch {
       registryVersion: registry.version,
     };
   }
-  plan(companyId: string, country = '') {
-    const p = this.profile(companyId, country);
+  plan(companyId: string, country = '', profileId = '') {
+    const p = this.profile(companyId, country, profileId);
     const jobMaterials = companyJobMaterials(
       companyId,
       p.jobs,
@@ -684,7 +831,7 @@ export class CompanyResearch {
     const gaps = p.criteria
       .filter(
         (c) =>
-          c.verdict === 'unknown' ||
+          (c.criterion.kind === 'scored' && c.verdict === 'unknown') ||
           c.verdict === 'conflicting' ||
           (c.criterion.kind !== 'scored' && !c.known.length),
       )
@@ -698,7 +845,13 @@ export class CompanyResearch {
             : c.observations.length
               ? 'unverified'
               : 'missing',
-        priority: c.criterion.section === 'A' ? 3 : c.criterion.kind === 'scored' ? 2 : 1,
+        priority: ['AN01', 'AN02', 'AN03', 'AN04'].includes(c.criterion.id)
+          ? 5
+          : c.criterion.section === 'A'
+            ? 3
+            : c.criterion.kind === 'scored'
+              ? 2
+              : 1,
         publicAnswerLikelihood: c.criterion.public_answer_likelihood,
         sources: c.criterion.allowed_sources,
         interviewIds: c.criterion.interview_ids,
@@ -710,6 +863,9 @@ export class CompanyResearch {
       .sort((a, b) => b.priority - a.priority);
     return {
       companyId,
+      selection: this.store.selection.read(),
+      fit: p.fit,
+      searchContext: p.searchContext,
       priority: p.preferences.priority,
       country,
       jobMaterials,
@@ -723,16 +879,25 @@ export class CompanyResearch {
         'jobs_monitor_companies',
       ],
       paidRecommendations: gaps
-        .filter((g) => ['P01', 'B06'].includes(g.criterionId))
+        .filter((g) => ['P01', 'P07_INTERVIEW', 'B06'].includes(g.criterionId))
         .map((g) => ({
           companyId,
           criterionId: g.criterionId,
           provider: 'apify',
-          operation: g.criterionId === 'P01' ? 'employee_reviews' : 'traffic',
+          actor: g.criterionId === 'B06' ? null : 'memo23/glassdoor-scraper-ppr',
+          operation:
+            g.criterionId === 'P01'
+              ? 'reviews'
+              : g.criterionId === 'P07_INTERVIEW'
+                ? 'interviews'
+                : 'traffic',
           reason: 'Закрывает существенный пробел; сначала бесплатные первичные источники',
           importance: p.preferences.priority === 'Target' ? 3 : 1,
           estimatedCost: null,
-          executionAvailable: false,
+          executionAvailable: g.criterionId !== 'B06' && Boolean(process.env.APIFY_TOKEN?.trim()),
+          adapterAvailable: g.criterionId !== 'B06',
+          quoteTool: g.criterionId === 'B06' ? null : 'jobs_company_paid_quote',
+          datasetRead: 'disabled',
           requires:
             'Актуальный pricing и отдельное согласие: Actor, параметры, компании, объём и максимальная стоимость',
         })),

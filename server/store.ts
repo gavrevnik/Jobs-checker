@@ -23,6 +23,7 @@ import {
   type SourceInput,
 } from '../shared/model.js';
 import { z } from 'zod';
+import { SelectionStore, selectionSql } from './selection-store.js';
 import {
   discoveryReviewSchema,
   discoveryHistorySchema,
@@ -68,9 +69,11 @@ const nameKey = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ')
 
 export class Store {
   db: DatabaseSync;
+  selection: SelectionStore;
   constructor(path: string) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     backupBeforeResearchMigration(path);
+    backupBeforeResearchMigration(path, 'selection');
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS companies (id TEXT PRIMARY KEY, name_key TEXT UNIQUE NOT NULL, data TEXT NOT NULL);
@@ -110,6 +113,9 @@ export class Store {
       this.db.prepare("INSERT INTO settings VALUES ('initialized','1')").run();
     }
     retireComparisonFields(this.db);
+    this.db.exec(selectionSql);
+    this.selection = new SelectionStore(this.db, () => this.list<Profile>('profiles'));
+    this.selection.initialize();
   }
   list<T>(table: 'jobs' | 'companies' | 'profiles' | 'sources'): T[] {
     return this.db
@@ -130,7 +136,9 @@ export class Store {
           ? { ...data, ...sourceSchema.parse(data) }
           : table === 'jobs'
             ? { ...data, ...jobSchema.parse(data) }
-            : data
+            : table === 'profiles'
+              ? { ...data, ...profileSchema.parse(data) }
+              : data
     ) as T;
   }
   get<T>(table: 'jobs' | 'companies' | 'profiles' | 'sources', id: string): T | undefined {
@@ -323,7 +331,8 @@ export class Store {
     if (data.companyId && !this.get('companies', data.companyId))
       throw new Error('Компания не найдена');
     if (data.profileId && !this.get('profiles', data.profileId))
-      throw new Error('Профиль не найден');
+      this.selection.profile(data.profileId);
+    if (data.scenarioId) this.selection.profile(data.scenarioId);
     if (old && key(old) !== key(data))
       throw new Error('Для другой доски или запроса добавьте новый источник');
     const source: Source = {
@@ -442,14 +451,22 @@ export class Store {
   recordRun(run: Omit<SourceRun, 'id' | 'at'>) {
     const saved: SourceRun = { ...run, id: randomUUID(), at: stamp() };
     this.db.prepare('INSERT INTO source_runs VALUES (?,?)').run(saved.id, JSON.stringify(saved));
-    this.db.exec(
-      'DELETE FROM source_runs WHERE rowid NOT IN (SELECT rowid FROM source_runs ORDER BY rowid DESC LIMIT 500)',
-    );
     return saved;
   }
   runs(): SourceRun[] {
     return this.db
       .prepare('SELECT data FROM source_runs ORDER BY rowid DESC LIMIT 100')
+      .all()
+      .map((r) => JSON.parse(String(r.data)));
+  }
+  latestSourceRuns(): SourceRun[] {
+    return this.db
+      .prepare(
+        `SELECT data FROM source_runs WHERE rowid IN (
+      SELECT MAX(rowid) FROM source_runs
+      GROUP BY json_extract(data, '$.sourceId'), COALESCE(json_extract(data, '$.companyId'), '')
+    ) ORDER BY rowid DESC`,
+      )
       .all()
       .map((r) => JSON.parse(String(r.data)));
   }
@@ -507,6 +524,8 @@ export class Store {
   }
   state() {
     return {
+      selection: this.selection.read(),
+      effectiveProfile: this.selection.profile(),
       jobs: this.list<Job>('jobs'),
       companies: this.list<Company>('companies'),
       profiles: this.list<Profile>('profiles'),

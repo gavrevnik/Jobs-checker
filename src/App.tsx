@@ -79,6 +79,8 @@ const CompanyDetails = lazy(() =>
 const CompanyComparisonPage = lazy(() =>
   import('./CompanyComparisonPage').then((m) => ({ default: m.CompanyComparisonPage })),
 );
+import { ProfileSettingsModal } from './ProfileSettingsModal';
+import './selection.css';
 type Page =
   | 'jobs'
   | 'companies'
@@ -104,7 +106,7 @@ const nav = [
   { id: 'comparison', label: 'Сравнение компаний', icon: ListFilter },
   { id: 'pipeline', label: 'Моя воронка', icon: KanbanSquare },
   { id: 'analytics', label: 'Аналитика', icon: Globe2 },
-  { id: 'profiles', label: 'Профили поиска', icon: SlidersHorizontal },
+  { id: 'profiles', label: 'Исходные профили', icon: SlidersHorizontal },
   { id: 'resources', label: 'Полезные ресурсы', icon: BookOpen },
   { id: 'connections', label: 'Источники', icon: Plug },
 ] as const;
@@ -126,7 +128,10 @@ export default function App() {
   const [state, setState] = useState<State>(blank);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [page, setPage] = useState<Page>('jobs');
+  const [page, setPage] = useState<Page>('comparison');
+  const [profileSettings, setProfileSettings] = useState(false);
+  const [advancedNav, setAdvancedNav] = useState(false);
+  const closeProfileSettings = useCallback(() => setProfileSettings(false), []);
   const [comparisonExpanded, setComparisonExpanded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => readStorage('scout-sidebar-collapsed') === 'true',
@@ -174,7 +179,8 @@ export default function App() {
     () => setVisibleCount(40),
     [search, tab, mode, level, location, source, minMatch, sort, showExcluded, profileId],
   );
-  const profile = state.profiles.find((p) => p.id === profileId) || state.profiles[0];
+  const profile =
+    state.effectiveProfile || state.profiles.find((p) => p.id === profileId) || state.profiles[0];
   const matches = useMemo(
     () => new Map(state.jobs.map((j) => [j.id, matchJob(j, profile)])),
     [state.jobs, profile],
@@ -334,7 +340,7 @@ export default function App() {
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            navigate('jobs');
+            navigate('comparison');
           }}
         >
           <span className="brand-mark">
@@ -361,50 +367,43 @@ export default function App() {
           {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </button>
         <nav id="main-navigation">
-          {nav.map((item) => (
-            <button
-              key={item.id}
-              aria-label={item.label}
-              title={item.label}
-              className={`nav-item ${page === item.id ? 'active' : ''}`}
-              onClick={() => navigate(item.id)}
-            >
-              <item.icon size={19} strokeWidth={1.7} />
-              <span>{item.label}</span>
-              {item.id === 'jobs' && active.length > 0 && <b>{active.length}</b>}
-              {item.id === 'pipeline' && inProgress.length > 0 && <span className="nav-dot" />}
-            </button>
-          ))}
+          {[...nav]
+            .sort((a, b) => Number(b.id === 'comparison') - Number(a.id === 'comparison'))
+            .filter((item) => advancedNav || ['comparison', 'pipeline'].includes(item.id))
+            .map((item) => (
+              <button
+                key={item.id}
+                aria-label={item.label}
+                title={item.label}
+                className={`nav-item ${page === item.id ? 'active' : ''}`}
+                onClick={() => navigate(item.id)}
+              >
+                <item.icon size={19} strokeWidth={1.7} />
+                <span>{item.label}</span>
+                {item.id === 'jobs' && active.length > 0 && <b>{active.length}</b>}
+                {item.id === 'pipeline' && inProgress.length > 0 && <span className="nav-dot" />}
+              </button>
+            ))}
+          <button
+            className="nav-item"
+            aria-label="Дополнительно"
+            title="Дополнительно"
+            aria-expanded={advancedNav}
+            onClick={() => setAdvancedNav((v) => !v)}
+          >
+            <ChevronDown size={19} />
+            <span>Дополнительно</span>
+          </button>
         </nav>
         <div className="sidebar-profile">
-          <span className="sidebar-profile-label">Активный профиль</span>
-          <div className="sidebar-profile-control" title={profile?.name || 'Профиль не выбран'}>
-            <span className="sidebar-profile-name" aria-hidden="true">
-              {profile?.name || 'Нет профиля'}
-            </span>
-            <span className="sidebar-profile-short" aria-hidden="true">
-              {(profile?.name.split('·')[1]?.trim() || profile?.name || '—')
-                .split(/\s+/)
-                .slice(0, 2)
-                .map((word) => word[0])
-                .join('')
-                .toUpperCase()}
-            </span>
-            <ChevronDown size={13} aria-hidden="true" />
-            <select
-              aria-label="Активный профиль"
-              value={profile?.id || ''}
-              disabled={!state.profiles.length}
-              onChange={(e) => selectProfile(e.target.value)}
-            >
-              {!state.profiles.length && <option value="">Нет профиля</option>}
-              {state.profiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <button
+            className="nav-item"
+            onClick={() => setProfileSettings(true)}
+            title={state.selection?.core.name || 'Мой профиль'}
+          >
+            <Settings2 size={19} />
+            <span>{state.selection?.core.name || 'Мой профиль'}</span>
+          </button>
         </div>
         <div className="sidebar-bottom">
           <a
@@ -439,7 +438,7 @@ export default function App() {
                 {due.length > 0 && <i />}
               </button>
               {page === 'comparison' ? null : page === 'resources' ? (
-                <button className="button secondary" onClick={() => navigate('profiles')}>
+                <button className="button secondary" onClick={() => setProfileSettings(true)}>
                   <Target size={16} />
                   Мой профиль
                 </button>
@@ -449,19 +448,12 @@ export default function App() {
                   Импорт
                 </button>
               )}
-              {page !== 'comparison' && (
+              {page !== 'comparison' && page !== 'profiles' && (
                 <button
                   className="button primary"
                   onClick={() =>
                     setDialog({
-                      kind:
-                        page === 'companies'
-                          ? 'company'
-                          : isSources
-                            ? 'source'
-                            : page === 'profiles'
-                              ? 'profile'
-                              : 'job',
+                      kind: page === 'companies' ? 'company' : isSources ? 'source' : 'job',
                     })
                   }
                 >
@@ -470,11 +462,9 @@ export default function App() {
                     ? 'Компания'
                     : isSources
                       ? 'Ресурс'
-                      : page === 'profiles'
-                        ? 'Профиль'
-                        : page === 'resources'
-                          ? 'Добавить вакансию'
-                          : 'Вакансия'}
+                      : page === 'resources'
+                        ? 'Добавить вакансию'
+                        : 'Вакансия'}
                 </button>
               )}
             </div>
@@ -851,6 +841,9 @@ export default function App() {
               {page === 'comparison' && (
                 <Suspense fallback={<div className="loading">Загрузка сравнения…</div>}>
                   <CompanyComparisonPage
+                    selection={state.selection}
+                    onProfileSettings={() => setProfileSettings(true)}
+                    onSelectionChanged={refresh}
                     expanded={comparisonExpanded}
                     onExpandedChange={setComparisonExpanded}
                     onDetail={(id) => setDialog({ kind: 'companyDetail', id })}
@@ -865,6 +858,7 @@ export default function App() {
                     }}
                     profileId={profile?.id || ''}
                     companyRevision={[
+                      String(state.selection?.version || ''),
                       ...state.companies.map((c) => c.id + ':' + c.updatedAt),
                       ...state.jobs.map((j) => j.id + ':' + j.updatedAt + ':' + j.lastSeenAt),
                       ...state.sources.map((s) => s.id + ':' + s.lastSync),
@@ -1200,103 +1194,35 @@ export default function App() {
                 />
               )}
               {page === 'profiles' && (
-                <>
-                  <div className="profiles-grid">
-                    {state.profiles.map((p) => (
-                      <article
-                        className={`profile-card ${p.id === profile?.id ? 'active-profile' : ''}`}
-                        key={p.id}
-                      >
-                        <div className="profile-card-header">
-                          <span className="profile-icon">
-                            <Target size={24} />
-                          </span>
-                          {p.id === profile?.id ? (
-                            <span className="pill green">
-                              <Check size={13} />
-                              Активный профиль
-                            </span>
-                          ) : (
-                            <button
-                              className="button ghost compact"
-                              onClick={() => selectProfile(p.id)}
-                            >
-                              Выбрать
-                            </button>
-                          )}
-                        </div>
-                        <h2>{p.name}</h2>
-                        <div className="profile-keywords">
-                          {p.keywords.length ? (
-                            p.keywords.map((k) => <span key={k}>{keywordLabel(k)}</span>)
-                          ) : (
-                            <span className="muted">Ключевые слова ещё не добавлены</span>
-                          )}
-                        </div>
-                        <dl>
-                          <dt>Формат</dt>
-                          <dd>{p.workMode === 'any' ? 'Любой' : workLabels[p.workMode]}</dd>
-                          <dt>География</dt>
-                          <dd>{p.locations.join(', ') || 'Любая'}</dd>
-                          <dt>Уровень</dt>
-                          <dd>{profileLevelLabel(p.seniority)}</dd>
-                          <dt>Зарплата от</dt>
-                          <dd>
-                            {p.minSalary === null
-                              ? 'Не задана'
-                              : `${p.minSalary.toLocaleString('ru-RU')} ${p.currency} / ${{ year: 'год', month: 'мес.', hour: 'час' }[p.salaryPeriod]}`}
-                          </dd>
-                          <dt>Исключить</dt>
-                          <dd>{p.exclude.join(', ') || 'Нет исключений'}</dd>
-                        </dl>
-                        {p.notes && (
-                          <details className="profile-context" open>
-                            <summary>Контекст и приоритеты</summary>
-                            <p>{p.notes}</p>
-                          </details>
-                        )}
-                        <div className="profile-card-footer">
-                          <button
-                            className="button secondary"
-                            onClick={() => setDialog({ kind: 'profile', item: p })}
-                          >
-                            <Settings2 size={15} />
-                            Настроить
-                          </button>
-                          <button
-                            className="icon-button"
-                            aria-label={`Удалить профиль ${p.name}`}
-                            disabled={state.profiles.length <= 1}
-                            onClick={() => {
-                              if (confirm(`Удалить профиль «${p.name}»?`))
-                                void notify(() => api(`/profiles/${p.id}`, 'DELETE', {}));
-                            }}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                  <div className="scoring-note">
-                    <Sparkles size={21} />
-                    <div>
-                      <h3>Понятная оценка, без чёрного ящика</h3>
-                      <p>
-                        Ключевые слова — вес 50, формат работы — 20, география — 15, уровень — 10,
-                        зарплата — 15. Учитываются только заданные критерии; сумма приводится к
-                        100%. Исключённое слово даёт 0% и скрывает вакансию из списка по умолчанию.
-                        Причины оценки видны в карточке. Это текстовое совпадение, а не оценка
-                        шансов на оффер.
-                      </p>
-                    </div>
-                  </div>
-                </>
+                <section className="legacy-profiles">
+                  <p>
+                    Исходные записи сохранены для истории. Текущий профиль и сценарии редактируются
+                    через шестерёнку в сравнении компаний.
+                  </p>
+                  <button className="button primary" onClick={() => setProfileSettings(true)}>
+                    Настроить текущий профиль
+                  </button>
+                  {state.profiles.map((p) => (
+                    <details key={p.id}>
+                      <summary>{p.name}</summary>
+                      <p>{p.notes}</p>
+                      <p>{p.locations.join(', ')}</p>
+                      <p>{p.keywords.join(', ')}</p>
+                    </details>
+                  ))}
+                </section>
               )}
             </>
           )}
         </main>
       </div>
+      {profileSettings && state.selection && (
+        <ProfileSettingsModal
+          config={state.selection}
+          close={closeProfileSettings}
+          saved={refresh}
+        />
+      )}
       {toast && (
         <div className="toast" role="status">
           <CheckCircle2 size={18} />

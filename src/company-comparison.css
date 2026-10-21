@@ -273,6 +273,36 @@
 .comparison-more-button {
   margin-left: auto;
 }
+.comparison-min-score input {
+  width: 100px;
+}
+.checked-sources {
+  margin: 24px 0;
+}
+.checked-sources table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.checked-sources th,
+.checked-sources td {
+  text-align: left;
+  vertical-align: top;
+  padding: 10px;
+  border-bottom: 1px solid var(--border, #dee5ed);
+  overflow-wrap: anywhere;
+}
+.checked-sources td:first-child {
+  width: 35%;
+}
+.checked-sources small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+}
+.checked-sources .source-check-error {
+  color: #b42318;
+  font-weight: 600;
+}
 .comparison-more-button svg {
   transition: transform 0.15s;
 }
@@ -379,6 +409,28 @@
   align-items: baseline;
   gap: 8px;
 }
+.comparison-company-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.comparison-company-heading .comparison-company-title {
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.comparison-updated-date {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  border-radius: 4px;
+  background: #f0f3ef;
+  color: #697467;
+  font-size: 9px;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .comparison-table .comparison-site-icon {
   display: inline-flex;
   margin: 0;
@@ -434,6 +486,20 @@
   padding: 2px 5px;
   border-radius: 4px;
   font-weight: 600;
+}
+.target-closed {
+  color: #657080;
+  font-weight: 600;
+}
+.comparison-offices-line {
+  line-height: 1.5;
+}
+.comparison-target-cell .target-closed {
+  margin-top: 6px;
+}
+.target-needs-review {
+  color: #67758a;
+  font-size: 11px;
 }
 .target-vacancies-modal {
   padding: 0 4px 12px;

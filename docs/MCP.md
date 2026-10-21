@@ -108,3 +108,12 @@ Company research registry 1.2: `AN09_CULTURE` — descriptive `{summary,tags}`; 
 Registry 1.4 добавляет descriptive `T08_INFRA` с `{summary,tags}` и `collection_sources.columns`/`columnSources.infrastructure`. JSON research остаётся 1.0; новый criterion_id проходит прежний preview/import/review. Таблица переносит проверенный стек в «Инфраструктуру», T03=true в LLM-тег культуры; удаление колонок не удаляет факты или оценки API. [Правила тегов](../discovery/analytics-tags.md).
 
 Arbeitnow: `jobs_search({providers:["arbeitnow"],country:"gb",execute:false})` планирует британскую ленту. Пустой country или `de` сохраняет прежнюю немецкую; другие рынки для этого провайдера отклоняются. UK sourceId — `discovery:arbeitnow:gb`. Оба рынка используют прежние cache/quota adapters, новые credentials не нужны.
+
+## Glassdoor: только ручной платный запуск
+
+[Контракт и примеры](../discovery/glassdoor.md): status, quote, authorize, execute, локальная история, явный refresh run metadata и offline normalize экспортированного JSON. Семь MCP tools `jobs_company_paid_*`; запуск только по конкретному запросу, с одноразовым grant и лимитом на стороне Apify. Доступны reviews/interviews, без автоматического dataset download или research import.
+
+
+## Культура и команда
+
+`jobs_company_culture_plan({companyId})` — локальный план, без сети/записи. `jobs_company_culture_assess({companyId,assessment})` — append-only оценка компании и команд по схеме culture_team v2. Использовать в авторизованном исследовании после review фактов вне вакансий. Даты публикаций сохраняются; историческая экспертиза не истекает, уверенность снижается. Очереди не меняются. История по-прежнему доступна через jobs_company_assessment_history. [Методика](../discovery/culture-and-team.md).

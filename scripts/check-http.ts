@@ -12,7 +12,13 @@ const dir = mkdtempSync(join(tmpdir(), 'jobs-checker-http-'));
 const port = 4328;
 const base = `http://127.0.0.1:${port}`;
 const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts', '--production'], {
-  env: { ...process.env, PORT: String(port), SCOUT_DB: join(dir, 'test.sqlite') },
+  env: {
+    ...process.env,
+    PORT: String(port),
+    SCOUT_DB: join(dir, 'test.sqlite'),
+    APIFY_TOKEN: '',
+    JOBS_GLASSDOOR_MAX_RUN_USD: '1',
+  },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let logs = '';
@@ -48,6 +54,29 @@ try {
   assert.equal(health.ok, true);
   assert.equal(health.application, 'jobs-checker');
   assert.equal(health.workspace, process.cwd());
+  const selection = (await call('/selection')).body;
+  assert.equal(selection.version, 1);
+  const updated = await call('/selection', 'PATCH', {
+    expectedVersion: selection.version,
+    core: selection.core,
+    scenarios: [{ id: 'http-es', name: 'Испания', locations: ['Spain'] }],
+    activeScenarioId: 'http-es',
+  });
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.coreVersion, selection.coreVersion);
+  assert.equal((await call('/selection/history')).body.versions.length, 2);
+  assert.equal(
+    (
+      await call('/selection', 'PATCH', {
+        expectedVersion: selection.version,
+        core: selection.core,
+        scenarios: [],
+        activeScenarioId: '',
+      })
+    ).status,
+    400,
+  );
+  assert.equal((await call('/state')).body.effectiveProfile.selection.scenarioId, 'http-es');
   assert.equal(
     (
       await fetch(`${base}/api/jobs`, {
@@ -101,6 +130,33 @@ try {
     200,
   );
   await call(`/companies/${created.body.job.companyId}`, 'PATCH', { industry: 'Fixture industry' });
+  const cultureId = created.body.job.companyId;
+  assert.equal(
+    (await call(`/company-research/${cultureId}/culture-plan`)).body.mode,
+    'culture_team',
+  );
+  const culture = await call(`/company-research/${cultureId}/culture-assessment`, 'POST', {
+    kind: 'culture_team',
+    methodologyVersion: 2,
+    profileVersion: selection.coreVersion,
+    business: { text: '', evidenceIds: [] },
+    teams: [],
+    company: {
+      summary: { text: '', evidenceIds: [] },
+      strengths: [],
+      gaps: [],
+      nextStep: 'Read source',
+      dimensions: ['influence', 'experimentation', 'peers', 'data', 'product', 'automation'].map(
+        (id) => ({ id, rating: null, reason: 'Unknown', basis: 'unknown', evidenceIds: [] }),
+      ),
+    },
+  });
+  assert.equal(culture.status, 200);
+  assert.equal(culture.body.fit.culture.company.score, null);
+  assert.equal(
+    (await call(`/company-research/${cultureId}/assessments`)).body.assessments.length,
+    1,
+  );
   const hiringProfile = (await call(`/company-research/${created.body.job.companyId}`)).body;
   assert.equal(hiringProfile.company.hiringSources.careers.url, hiringSources.careers.url);
   const exported = (await call('/export')).body;
@@ -187,7 +243,12 @@ try {
   assert.ok(
     (await call('/company-research/' + created.body.job.companyId + '/plan')).body.gaps.length,
   );
-  assert.equal((await call('/company-research/paid')).body.availableActors.length, 0);
+  const paidStatus = (await call('/company-research/paid')).body;
+  assert.deepEqual(paidStatus.availableActors, ['memo23/glassdoor-scraper-ppr']);
+  assert.equal(paidStatus.adapters['memo23/glassdoor-scraper-ppr'].configured, false);
+  assert.equal(paidStatus.adapters['memo23/glassdoor-scraper-ppr'].datasetRead, 'disabled');
+  assert.deepEqual((await call('/company-research/paid/runs')).body.runs, []);
+  assert.equal((await call('/company-research/paid/authorize', 'POST', {})).status, 400);
   assert.equal((await call('/company-research/paid/execute', 'POST', {})).status, 400);
   assert.equal((await call('/state')).body.jobs[0].notes, 'Persist me');
   if (process.argv.includes('--live')) {

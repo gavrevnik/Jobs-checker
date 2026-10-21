@@ -5,26 +5,37 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 export const retiredComparisonFieldsKey = 'company-research:retired-comparison-fields-v1';
 // Run before opening the application Store. Existing files get a verified WAL-aware snapshot once.
-export function backupBeforeResearchMigration(path: string) {
+export function backupBeforeResearchMigration(
+  path: string,
+  migration: 'research' | 'selection' = 'research',
+) {
   if (path === ':memory:' || !existsSync(path)) return;
   const db = new DatabaseSync(path, { readOnly: true });
   let migrated: boolean;
   try {
-    migrated =
-      Number(
-        db
-          .prepare(
-            "SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('company_research_registry','company_research_scores')",
-          )
-          .get()?.n,
-      ) === 2;
-    if (migrated) {
-      const hasSettings = db
-        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'")
+    if (migration === 'selection') {
+      migrated = !!db
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type='table' AND name='selection_profile_versions'",
+        )
         .get();
+    } else {
       migrated =
-        !!hasSettings &&
-        !!db.prepare('SELECT 1 FROM settings WHERE key=?').get(retiredComparisonFieldsKey);
+        Number(
+          db
+            .prepare(
+              "SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('company_research_registry','company_research_scores')",
+            )
+            .get()?.n,
+        ) === 2;
+      if (migrated) {
+        const hasSettings = db
+          .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'")
+          .get();
+        migrated =
+          !!hasSettings &&
+          !!db.prepare('SELECT 1 FROM settings WHERE key=?').get(retiredComparisonFieldsKey);
+      }
     }
   } finally {
     db.close();
@@ -40,7 +51,10 @@ export function backupBeforeResearchMigration(path: string) {
       '-c',
       'import sys; from catalog_sync.core import backup_database; backup_database(sys.argv[1], sys.argv[2])',
       resolve(path),
-      resolve(dirname(path), 'backups/company-research'),
+      resolve(
+        dirname(path),
+        `backups/${migration === 'selection' ? 'company-selection' : 'company-research'}`,
+      ),
     ],
     { cwd: radar, encoding: 'utf8', timeout: 60000 },
   );

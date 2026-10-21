@@ -1,4 +1,5 @@
-import type { Job } from './model.js';
+import type { Job, Profile } from './model.js';
+import { professionalRole } from './job-fit.js';
 
 // Fixed comparison contract; independent of the active search profile and its keywords.
 export const targetVacancyContract = {
@@ -8,7 +9,14 @@ export const targetVacancyContract = {
   openWithinDays: 30,
   history: 'all_saved',
 } as const;
-export function targetLevel(job: Pick<Job, 'title' | 'seniority'>): 'middle' | 'senior' | null {
+export function targetLevel(
+  job: Pick<Job, 'title' | 'seniority'>,
+  profile?: Profile,
+): 'intern' | 'junior' | 'middle' | 'senior' | 'lead' | 'review' | null {
+  if (profile?.selection?.roleFamilies.length) {
+    const result = professionalRole(job, profile);
+    return result === 'excluded' ? null : result;
+  }
   const title = job.title;
   if (
     !/\b(?:product(?:\s*(?:&|and|\/)\s*data)?|product\s+data|data)\s+analyst\b|(?:продуктов[а-яё]*\s+аналитик|аналитик\s+данных)/iu.test(

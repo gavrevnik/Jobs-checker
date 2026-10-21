@@ -70,6 +70,12 @@ export function collectTags() {
   >();
   return {
     add(label: string, o: StoredObservation, basis?: string) {
+      if (
+        /^(?:a\/b(?:[- ]testing)?|a\/b[- ]тестирование|ab testing|эксперименты)$/i.test(
+          label.trim(),
+        )
+      )
+        label = 'Эксперименты';
       const key = label.trim().toLowerCase();
       const item = tags.get(key) || {
         label: label.trim(),
@@ -202,7 +208,7 @@ export function companyResearchTags(observations: StoredObservation[], now = Dat
         o,
       );
     if (o.criterion_id === 'AN04' && typeof o.value === 'boolean')
-      culture.add(o.value ? 'A/B platform' : 'Нет A/B-платформы', o);
+      culture.add(o.value ? 'Эксперименты' : 'A/B не применяют', o);
     if (o.criterion_id === 'AN08' && o.value === true) culture.add('Публикации сотрудников', o);
     if (o.criterion_id === 'AN06' && typeof o.value === 'string') {
       const label = {

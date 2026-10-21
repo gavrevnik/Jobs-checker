@@ -217,6 +217,9 @@ describe('Target vacancies contract', () => {
     );
     expect(result.total).toBe(2);
     expect(result.open).toBe(1);
+    expect(result.closed).toBe(1);
+    expect(result.openOffices.map((o) => o.name)).toEqual(['Barcelona']);
+    expect(result.closedOffices.map((o) => o.name)).toEqual(['Berlin']);
     expect(result.jobIds.sort()).toEqual(['b', 'c']);
     expect(result.jobs[0].atsJobIds.sort()).toEqual(['a', 'b']);
     expect(result.offices.map((o) => [o.name, o.open])).toEqual([
@@ -228,6 +231,28 @@ describe('Target vacancies contract', () => {
       companyTargetVacancies('co', [job('remote', { location: 'Remote, Spain' })], [], [], now)
         .offices,
     ).toEqual([]);
+  });
+  it('does not count stale or unverified vacancies and their offices as closed', () => {
+    const result = companyTargetVacancies(
+      'co',
+      [
+        job('open', { location: 'Dublin' }),
+        job('closed', { location: 'Berlin', stage: 'archived' }),
+        job('old', { location: 'Paris', lastSeenAt: '2024-01-01' }),
+        job('unknown', { location: 'Madrid', lastSeenAt: '' }),
+      ],
+      [],
+      [],
+      now,
+    );
+    expect({
+      total: result.total,
+      open: result.open,
+      closed: result.closed,
+      needsReview: result.needsReview,
+    }).toEqual({ total: 4, open: 1, closed: 1, needsReview: 2 });
+    expect(result.openOffices.map((o) => o.name)).toEqual(['Dublin']);
+    expect(result.closedOffices.map((o) => o.name)).toEqual(['Berlin']);
   });
   it('dates used sources from successful sync/observations rather than edits and skips unused boards', () => {
     const board = (id: string, lastSync = ''): Source => ({

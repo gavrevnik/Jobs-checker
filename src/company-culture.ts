@@ -15,7 +15,17 @@ export function companyCulture(observations: StoredObservation[], now = Date.now
       'summary' in o.value,
   );
   const summaries: string[] = [];
-  for (const o of signals.sort((a, b) => b.importedAt.localeCompare(a.importedAt))) {
+  const relevance = (o: StoredObservation) => {
+    const tags = (o.value as { tags: string[] }).tags.join(' ');
+    return (
+      (/experiment|causal|эксперимент|pricing|inference/i.test(tags) ? 3 : 0) +
+      (/product.*analyst|data.*analyst/i.test(o.scope.role || '') ? 2 : 0) -
+      (/analytics engineer/i.test(o.scope.role || '') ? 3 : 0)
+    );
+  };
+  for (const o of signals.sort(
+    (a, b) => relevance(b) - relevance(a) || b.importedAt.localeCompare(a.importedAt),
+  )) {
     const v = o.value as { summary: string; tags: string[] };
     summaries.push(v.summary);
   }
@@ -52,7 +62,7 @@ export function companyCulture(observations: StoredObservation[], now = Date.now
   return {
     tags: companyResearchTags(observations, now).culture,
     summary: [...new Set(summaries)].join(' '),
-    preview: shortSentences(summaries.join(' '), 2, 350),
+    preview: shortSentences(summaries[0] || '', 2, 350),
     blogs: [...blogs.values()],
     github: [...github.values()],
     traffic,

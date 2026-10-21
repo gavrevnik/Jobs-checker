@@ -216,7 +216,7 @@ it('preserves analytic role focus, mixed duties and A/B evidence in tags before 
   const tags = companyResearchTags(f.profile().observations).culture;
   expect(tags.map((t) => t.label)).toEqual(
     expect.arrayContaining([
-      'A/B platform',
+      'Эксперименты',
       'Product/Data analytics',
       'BI / DE / ML focus',
       'Mixed analytics role',
@@ -225,7 +225,7 @@ it('preserves analytic role focus, mixed duties and A/B evidence in tags before 
   );
   for (const id of [experiments, product, bi, mixed, noInfluence])
     expect(tags.some((t) => t.observationIds.includes(id))).toBe(true);
-  expect(tags.find((t) => t.label === 'A/B platform')?.details).toContain(
+  expect(tags.find((t) => t.label === 'Эксперименты')?.details).toContain(
     'https://example.test/product',
   );
   expect(uncoveredAnalyticsFacts(f.profile().observations)).toEqual([]);
@@ -236,7 +236,7 @@ it('preserves analytic role focus, mixed duties and A/B evidence in tags before 
   ]);
   f.add('AN04', false, { scope });
   expect(
-    companyResearchTags(f.profile().observations).culture.some((t) => t.label === 'A/B platform'),
+    companyResearchTags(f.profile().observations).culture.some((t) => t.label === 'Эксперименты'),
   ).toBe(false);
   expect(uncoveredAnalyticsFacts(f.profile().observations).some((o) => o.id === experiments)).toBe(
     true,

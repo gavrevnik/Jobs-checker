@@ -218,6 +218,7 @@ export const sourceSchema = z
     location: z.string().trim().max(200).default(''),
     companyId: z.string().max(100).default(''),
     profileId: z.string().max(100).default(''),
+    scenarioId: z.string().max(100).default(''),
     monitoring: z.boolean().default(false),
     intervalHours: z.number().int().min(6).max(168).default(12),
   })
@@ -239,7 +240,10 @@ export type Job = JobInput & {
   lastSeenAt: string;
   history: { stage: string; at: string }[];
 };
-export type Profile = ProfileInput & { id: string };
+export type Profile = ProfileInput & {
+  id: string;
+  selection?: { version: number; scenarioId: string; scenarioName: string; roleFamilies: string[] };
+};
 export type Source = SourceInput & {
   id: string;
   lastSync: string;
@@ -248,6 +252,8 @@ export type Source = SourceInput & {
   count: number;
 };
 export type State = {
+  selection?: import('./selection-profile.js').SelectionConfig;
+  effectiveProfile?: Profile;
   jobs: Job[];
   companies: Company[];
   profiles: Profile[];

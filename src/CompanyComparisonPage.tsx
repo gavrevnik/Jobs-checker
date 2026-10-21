@@ -1,5 +1,13 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownUp, Search, ExternalLink, ChevronDown, Maximize2, Minimize2 } from 'lucide-react';
+import {
+  ArrowDownUp,
+  Search,
+  ExternalLink,
+  ChevronDown,
+  Settings,
+  Maximize2,
+  Minimize2,
+} from 'lucide-react';
 import { TargetVacancySourcesModal } from './TargetVacancySourcesModal';
 import { ComparisonColumnGuide, type GuideColumn } from './ComparisonColumnGuide';
 import { companyPresentation } from './company-presentation';
@@ -15,6 +23,8 @@ import { CompanyInterviewModal } from './CompanyInterviewModal';
 import { companyInterviewDetails } from '../shared/company-interviews';
 import { companyScreening } from './company-screening';
 import type { ResearchTag } from '../shared/company-signals';
+import { CompanyScoreModal } from './CompanyScoreModal';
+import type { SelectionConfig } from '../shared/selection-profile';
 import { api } from './api';
 import { Modal } from './components';
 import { registry, sections, type Section } from '../shared/company-research';
@@ -22,6 +32,7 @@ import type { CompanyResearch } from '../server/company-research';
 import './company-comparison.css';
 import {
   comparisonModeMatches,
+  comparisonScoreMatches,
   comparisonHiringOffices,
   comparisonHiringOfficeMatches,
   comparisonHiringTags,
@@ -37,7 +48,7 @@ const label: Record<string, string> = {
 };
 const statusLabels: Record<string, string> = {
   not_researched: 'Не исследовано',
-  needs_review: 'Проверить evidence',
+  needs_review: 'Нужна проверка',
   conflicting: 'Противоречия',
   stale: 'Устаревшие данные',
   reviewed: 'Проверено',
@@ -50,6 +61,9 @@ const show = (value: unknown) =>
       : String(value);
 export function CompanyComparisonPage({
   onDetail,
+  selection,
+  onProfileSettings,
+  onSelectionChanged,
   profileId,
   companyRevision,
   onJob,
@@ -57,6 +71,9 @@ export function CompanyComparisonPage({
   expanded,
   onExpandedChange,
 }: {
+  selection?: SelectionConfig;
+  onProfileSettings: () => void;
+  onSelectionChanged: () => Promise<void>;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
   onDetail: (id: string) => void;
@@ -79,11 +96,14 @@ export function CompanyComparisonPage({
     [domain, setDomain] = useState('');
   const [section, setSection] = useState<Section>('A'),
     [minPass, setMinPass] = useState(0),
-    [coverage, setCoverage] = useState(0);
-  const [sort, setSort] = useState('name'),
-    [descending, setDescending] = useState(false),
+    [coverage, setCoverage] = useState(0),
+    [minScore, setMinScore] = useState('');
+  const [sort, setSort] = useState('score'),
+    [descending, setDescending] = useState(true),
     [error, setError] = useState(''),
     [loading, setLoading] = useState(true);
+  const [scoreCompany, setScoreCompany] = useState<Profile | null>(null);
+  const closeScore = useCallback(() => setScoreCompany(null), []);
   const [detail, setDetail] = useState<string | null>(null);
   const [linksCompany, setLinksCompany] = useState<{ id: string; name: string } | null>(null);
   const [targetCompany, setTargetCompany] = useState<{ id: string; name: string } | null>(null);
@@ -146,9 +166,13 @@ export function CompanyComparisonPage({
             verdictMatch('A04_RELOCATION', relocation) &&
             verdictMatch('A04', visa) &&
             (!hasJobs || p.targetVacancies.open > 0) &&
+            comparisonScoreMatches(p.fit.score, minScore) &&
             (companySize === 'all' || p.company.sizeCategory === companySize) &&
             (status === 'all' || p.researchStatus === status) &&
-            (priority === 'all' || p.preferences.priority === priority) &&
+            (priority === 'all' ||
+              (priority === 'Research'
+                ? p.fit.suggestedQueue === 'Research' && p.preferences.priority === 'Unassigned'
+                : p.preferences.priority === priority)) &&
             (!domain ||
               p.company.industry.toLowerCase().includes(domain.toLowerCase()) ||
               p.confirmed.some(
@@ -162,17 +186,23 @@ export function CompanyComparisonPage({
         })
         .sort((a, b) => {
           const val = (p: Profile): string | number =>
-            sort === 'name'
-              ? p.company.name
-              : sort === 'jobs'
-                ? p.targetVacancies.open
-                : sort === 'coverage'
-                  ? p.scores[section].coverage
-                  : sort === 'pass'
-                    ? p.scores[section].pass
-                    : sort === 'domain'
-                      ? p.company.industry
-                      : p.lastResearchAt;
+            sort === 'score'
+              ? p.fit.score === null
+                ? -1
+                : (p.fit.provisional ? 0 : 10000) +
+                  (p.fit.coverage >= 60 ? 1000 : 0) +
+                  (p.fit.score * p.fit.coverage) / 100
+              : sort === 'name'
+                ? p.company.name
+                : sort === 'jobs'
+                  ? p.targetVacancies.open
+                  : sort === 'coverage'
+                    ? p.scores[section].coverage
+                    : sort === 'pass'
+                      ? p.scores[section].pass
+                      : sort === 'domain'
+                        ? p.company.industry
+                        : p.lastResearchAt;
           const av = val(a),
             bv = val(b);
           return (
@@ -188,6 +218,7 @@ export function CompanyComparisonPage({
       relocation,
       visa,
       hasJobs,
+      minScore,
       companySize,
       status,
       priority,
@@ -207,14 +238,7 @@ export function CompanyComparisonPage({
     () => filteredProfiles.filter((p) => comparisonHiringOfficeMatches(p, office)),
     [filteredProfiles, office],
   );
-  const visibleSections = useMemo(
-    () =>
-      new Set([
-        ...(data.some((p) => uncoveredAvailabilityFacts(p).length > 0) ? ['A'] : []),
-        ...(data.some((p) => uncoveredTechnicalFacts(p.observations).length > 0) ? ['T'] : []),
-      ]),
-    [data],
-  );
+  const visibleSections = new Set<string>();
   useEffect(() => {
     if (!expanded) return;
     const key = (e: KeyboardEvent) => {
@@ -229,6 +253,78 @@ export function CompanyComparisonPage({
   const closeGuide = useCallback(() => setColumnGuide(null), []);
   return (
     <section className={`comparison-page${expanded ? ' comparison-page-expanded' : ''}`}>
+      <div className="comparison-profile-bar">
+        <button
+          className="profile-gear"
+          onClick={onProfileSettings}
+          aria-label="Настроить профессиональный профиль"
+        >
+          <Settings size={19} />
+          <span>
+            <strong>{selection?.core.name || 'Мой профиль'}</strong>
+            <small>Профессиональное ядро</small>
+          </span>
+        </button>
+        {selection && (
+          <label>
+            Доступность
+            <select
+              aria-label="Сценарий доступности"
+              value={selection.activeScenarioId}
+              onChange={(e) => {
+                const id = e.target.value;
+                void api('/selection', 'PATCH', {
+                  expectedVersion: selection.version,
+                  core: selection.core,
+                  scenarios: selection.scenarios,
+                  activeScenarioId: id,
+                })
+                  .then(onSelectionChanged)
+                  .catch((e) => setError(e.message));
+              }}
+            >
+              <option value="">Без ограничений географии</option>
+              {selection.scenarios
+                .filter((s) => s.enabled)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+      </div>
+      <div className="company-queues" aria-label="Очереди компаний">
+        {[
+          ['all', 'Все компании'],
+          ['Target', 'Target'],
+          ['Practice', 'Практика'],
+          ['Research', 'Исследовать'],
+          ['Secondary', 'Резерв'],
+        ].map(([id, title]) => (
+          <button
+            key={id}
+            className={priority === id ? 'active' : ''}
+            aria-pressed={priority === id}
+            onClick={() => setPriority(id)}
+          >
+            {title}
+            <span>
+              {
+                data.filter(
+                  (p) =>
+                    id === 'all' ||
+                    (id === 'Research'
+                      ? p.fit.suggestedQueue === 'Research' &&
+                        p.preferences.priority === 'Unassigned'
+                      : p.preferences.priority === id),
+                ).length
+              }
+            </span>
+          </button>
+        ))}
+      </div>
       <div className="comparison-filters">
         <div className="comparison-primary-filters">
           <label>
@@ -265,6 +361,21 @@ export function CompanyComparisonPage({
                 </option>
               ))}
             </select>
+          </label>
+          <label
+            className="comparison-min-score"
+            title="Показывать компании со скором строго выше выбранного. Пустое поле — без ограничения."
+          >
+            Min score
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              placeholder="Любой"
+              value={minScore}
+              onChange={(e) => setMinScore(e.target.value)}
+            />
           </label>
           <label className="comparison-active-jobs">
             <input
@@ -321,7 +432,7 @@ export function CompanyComparisonPage({
             </label>
           ))}
           <label>
-            Research status
+            Состояние исследования
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="all">Все</option>
               {Object.entries(statusLabels).map(([v, l]) => (
@@ -334,7 +445,7 @@ export function CompanyComparisonPage({
           <label>
             Приоритет
             <select value={priority} onChange={(e) => setPriority(e.target.value)}>
-              {['all', 'Target', 'Secondary', 'Practice', 'Unassigned'].map((v) => (
+              {['all', 'Target', 'Secondary', 'Practice', 'Research', 'Unassigned'].map((v) => (
                 <option key={v} value={v}>
                   {v === 'all' ? 'Все' : v}
                 </option>
@@ -360,7 +471,7 @@ export function CompanyComparisonPage({
             </select>
           </label>
           <label>
-            Pass от
+            Подтверждённых критериев от
             <input
               type="number"
               min="0"
@@ -370,7 +481,7 @@ export function CompanyComparisonPage({
             />
           </label>
           <label>
-            Coverage % от
+            Изучено, % от
             <input
               type="number"
               min="0"
@@ -383,11 +494,12 @@ export function CompanyComparisonPage({
             Сортировка
             <select value={sort} onChange={(e) => setSort(e.target.value)}>
               {Object.entries({
+                score: 'Балл и полнота данных',
                 name: 'Компания',
                 jobs: 'Целевые: открытые',
                 domain: 'Направление',
-                coverage: 'Coverage раздела',
-                pass: 'Pass раздела',
+                coverage: 'Полнота раздела',
+                pass: 'Подтверждённые критерии',
                 date: 'Дата исследования',
               }).map(([v, l]) => (
                 <option value={v} key={v}>
@@ -489,6 +601,9 @@ export function CompanyComparisonPage({
                 const hiringTags = comparisonHiringTags(p);
                 const infrastructure = companyResearchTags(p.observations).infrastructure;
                 const screening = companyScreening(p);
+                const updatedAt = [p.lastResearchAt, p.jobsCheckedAt]
+                  .filter((date) => date && Number.isFinite(Date.parse(date)))
+                  .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
                 const hq =
                   p.headquarters.status === 'distributed'
                     ? 'Распределённая команда'
@@ -503,30 +618,70 @@ export function CompanyComparisonPage({
                 return (
                   <tr key={p.company.id}>
                     <td>
-                      <div className="comparison-company-title">
-                        <button className="comparison-name" onClick={() => onDetail(p.company.id)}>
-                          {p.company.name}
-                        </button>
-                        {p.company.website && (
-                          <a
-                            className="comparison-site-icon"
-                            href={p.company.website}
-                            target="_blank"
-                            rel="noreferrer"
-                            aria-label={`Сайт компании ${p.company.name}`}
+                      <div className="comparison-company-heading">
+                        <div className="comparison-company-title">
+                          <button
+                            className="comparison-name"
+                            onClick={() => onDetail(p.company.id)}
                           >
-                            <ExternalLink size={15} />
-                          </a>
+                            {p.company.name}
+                          </button>
+                          {p.company.website && (
+                            <a
+                              className="comparison-site-icon"
+                              href={p.company.website}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label={`Сайт компании ${p.company.name}`}
+                            >
+                              <ExternalLink size={15} />
+                            </a>
+                          )}
+                        </div>
+                        {updatedAt && (
+                          <time
+                            className="comparison-updated-date"
+                            dateTime={updatedAt}
+                            title="Дата актуализации"
+                          >
+                            {updatedAt.slice(0, 10)}
+                          </time>
                         )}
                       </div>
                       {presentation.businessType && (
                         <span className="comparison-business-tag">{presentation.businessType}</span>
                       )}
                       {p.preferences.priority !== 'Unassigned' && (
-                        <span className="comparison-business-tag">{p.preferences.priority}</span>
+                        <span className="comparison-business-tag">
+                          {p.preferences.priority === 'Practice'
+                            ? 'Практика'
+                            : p.preferences.priority === 'Secondary'
+                              ? 'Резерв'
+                              : p.preferences.priority}
+                        </span>
+                      )}
+                      <button
+                        className={`company-score-badge${p.fit.provisional ? ' provisional' : ''}`}
+                        onClick={() => setScoreCompany(p)}
+                        aria-label={`Оценка ${p.company.name}: ${p.fit.score ?? 'не оценена'}`}
+                      >
+                        <strong>
+                          {p.fit.score ?? '—'}
+                          <small> / 100</small>
+                        </strong>
+                        <span>
+                          {p.fit.outdated
+                            ? 'Обновить оценку'
+                            : p.fit.provisional
+                              ? 'Предварительно'
+                              : 'Аналитическая среда'}
+                        </span>
+                      </button>
+                      {p.preferences.priority === 'Practice' && p.preferences.practiceGoal && (
+                        <small className="practice-goal">{p.preferences.practiceGoal}</small>
                       )}
                       <small>{presentation.size}</small>
-                      <small>Основной офис / штаб-квартира: {hq}</small>
+                      <small>Штаб квартира: {hq}</small>
                       <button
                         className="comparison-useful-links"
                         aria-label={`Полезные ссылки: ${p.company.name}`}
@@ -546,7 +701,7 @@ export function CompanyComparisonPage({
                           })
                         }
                       >
-                        {presentation.description}
+                        {p.fit.business || presentation.description}
                       </button>
                       <FactChips
                         tags={screening.business}
@@ -584,21 +739,24 @@ export function CompanyComparisonPage({
                         aria-label={`Целевые вакансии: ${p.company.name}`}
                         onClick={() => setTargetCompany({ id: p.company.id, name: p.company.name })}
                       >
-                        <span>Всего найдено {p.targetVacancies.total}</span>
                         <strong className="target-open">Открытые {p.targetVacancies.open}</strong>
-                        <span className="comparison-offices-label">Офисы найма:</span>
-                        <span>
-                          {p.targetVacancies.offices.length
-                            ? p.targetVacancies.offices.map((city) => (
-                                <span
-                                  className={`comparison-office${city.open ? ' target-open' : ''}`}
-                                  key={city.id}
-                                >
-                                  {city.name}
-                                </span>
-                              ))
-                            : '—'}
+                        <span className="comparison-offices-line">
+                          <span className="comparison-offices-label">Офисы найма: </span>
+                          {p.targetVacancies.openOffices.map((city) => city.name).join(', ') || '—'}
                         </span>
+                        <strong className="target-closed">
+                          Закрытые {p.targetVacancies.closed}
+                        </strong>
+                        <span className="comparison-offices-line">
+                          <span className="comparison-offices-label">Офисы найма: </span>
+                          {p.targetVacancies.closedOffices.map((city) => city.name).join(', ') ||
+                            '—'}
+                        </span>
+                        {p.targetVacancies.needsReview > 0 && (
+                          <span className="target-needs-review">
+                            Требуют проверки {p.targetVacancies.needsReview}
+                          </span>
+                        )}
                       </button>
                       <CompanyHiringLinks company={p.company} />
                       <FactChips
@@ -668,7 +826,12 @@ export function CompanyComparisonPage({
                           })
                         }
                       >
-                        {culture.preview && <p>{culture.preview}</p>}
+                        <p>
+                          {p.fit.assessmentId && !p.fit.outdated
+                            ? p.fit.analytics
+                            : culture.preview || p.fit.analytics}
+                        </p>
+                        {p.fit.scope.role && <small>Разбор роли: {p.fit.scope.role}</small>}
                       </button>
                       <FactChips
                         tags={screening.team}
@@ -681,12 +844,12 @@ export function CompanyComparisonPage({
                         }
                         limit={2}
                       />
-                      {culture.blogs.map((b) => (
+                      {culture.blogs.slice(0, 1).map((b) => (
                         <a key={b.url} href={b.url} target="_blank" rel="noreferrer">
                           {b.title} <ExternalLink size={12} />
                         </a>
                       ))}
-                      {culture.github.map((b) => (
+                      {culture.github.slice(0, 1).map((b) => (
                         <a key={b.url} href={b.url} target="_blank" rel="noreferrer">
                           GitHub · {b.title} <ExternalLink size={12} />
                         </a>
@@ -854,6 +1017,7 @@ export function CompanyComparisonPage({
           <EvidenceProfile companyId={detail} />
         </Modal>
       )}
+      {scoreCompany && <CompanyScoreModal company={scoreCompany} close={closeScore} saved={load} />}
       {targetCompany && (
         <TargetVacanciesModal
           companyId={targetCompany.id}

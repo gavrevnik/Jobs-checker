@@ -11,7 +11,13 @@ import assert from 'node:assert/strict';
 const dir = mkdtempSync(join(tmpdir(), 'jobs-mcp-'));
 const base = 'http://127.0.0.1:4338';
 const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts', '--production'], {
-  env: { ...process.env, PORT: '4338', SCOUT_DB: join(dir, 'test.sqlite') },
+  env: {
+    ...process.env,
+    PORT: '4338',
+    SCOUT_DB: join(dir, 'test.sqlite'),
+    APIFY_TOKEN: '',
+    JOBS_GLASSDOOR_MAX_RUN_USD: '1',
+  },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let logs = '';
@@ -44,7 +50,9 @@ try {
     }),
   );
   const listed = await client.listTools();
-  assert.equal(listed.tools.length, 24);
+  assert.equal(listed.tools.length, 36);
+  for (const suffix of ['status', 'quote', 'authorize', 'execute', 'runs', 'refresh', 'normalize'])
+    assert.ok(listed.tools.some((t) => t.name === `jobs_company_paid_${suffix}`));
   assert.ok(listed.tools.some((t) => t.name === 'jobs_company_research_recalculate'));
   assert.ok(listed.tools.some((t) => t.name === 'jobs_company_research_import'));
   const call = async (name: string, args: Record<string, unknown> = {}) => {
@@ -53,6 +61,11 @@ try {
     return result.structuredContent as any;
   };
   const status = await call('jobs_sources_status');
+  const paidStatus = await call('jobs_company_paid_status');
+  assert.equal(paidStatus.adapters['memo23/glassdoor-scraper-ppr'].configured, false);
+  assert.deepEqual((await call('jobs_company_paid_runs')).runs, []);
+  const denied = await client.callTool({ name: 'jobs_company_paid_execute', arguments: {} });
+  assert.ok(denied.isError);
   assert.equal(status.providers.length, 10);
   assert.ok(status.providers.some((p: any) => p.id === 'jobicy' && !p.missing.length));
   assert.equal(status.providers.find((p: any) => p.id === 'adzuna').quota.limit, 2500);
@@ -143,13 +156,88 @@ try {
   const web = (await call('jobs_web_search_plan', { keywords: ['SQL'] })).resources;
   assert.equal(web.length, 7);
   assert.ok(web.some((r: any) => r.id === 'workday' && r.query.includes('myworkdayjobs.com')));
-  const jobicyPlan = await call('jobs_search', { providers: ['jobicy'], keywords: ['Data Analyst'] });
+  const jobicyPlan = await call('jobs_search', {
+    providers: ['jobicy'],
+    keywords: ['Data Analyst'],
+  });
   assert.equal(jobicyPlan.execute, false);
   assert.equal(jobicyPlan.requests, 0);
   assert.equal(jobicyPlan.providers[0].status, 'ready');
   const criteria = await call('jobs_company_research_criteria');
   assert.equal(criteria.version, registry.version);
   const companyId = job.companyId;
+  const profileContext = await call('jobs_profiles');
+  assert.ok(profileContext.selection.core);
+  const configured = await call('jobs_selection_update', {
+    expectedVersion: profileContext.selection.version,
+    core: profileContext.selection.core,
+    scenarios: [{ id: 'mcp-es', name: 'Испания', locations: ['Spain'] }],
+    activeScenarioId: 'mcp-es',
+  });
+  assert.equal(configured.coreVersion, profileContext.selection.coreVersion);
+  const scopedPlan = await call('jobs_search', { providers: ['jobicy'], scenarioId: 'mcp-es' });
+  assert.deepEqual(scopedPlan.filters.locations, ['Spain']);
+  assert.equal(scopedPlan.context.scenarioId, 'mcp-es');
+  assert.equal(scopedPlan.requests, 0);
+  const noGeo = await call('jobs_search', { providers: ['jobicy'], scenarioId: 'all' });
+  assert.deepEqual(noGeo.filters.locations, []);
+  await call('jobs_company_assess', {
+    companyId,
+    assessment: {
+      profileVersion: configured.coreVersion,
+      scope: {},
+      business: { text: '', evidenceIds: [] },
+      analytics: { text: '', evidenceIds: [] },
+      dimensions: ['influence', 'experimentation', 'peers', 'data', 'product', 'automation'].map(
+        (id) => ({
+          id,
+          rating: null,
+          reason: 'Fixture unknown',
+          evidenceIds: [],
+          basis: 'unknown',
+        }),
+      ),
+      strengths: [],
+      gaps: ['No evidence'],
+      nextStep: 'Read company source',
+    },
+  });
+  assert.equal(
+    (await call('jobs_company_assessment_history', { companyId })).assessments.length,
+    1,
+  );
+  assert.equal(
+    (await call('jobs_company_research_profile', { companyId, scenarioId: 'all' })).fit.score,
+    null,
+  );
+  const culturePlan = await call('jobs_company_culture_plan', { companyId });
+  assert.equal(culturePlan.mode, 'culture_team');
+  assert.ok(culturePlan.sourceQueries.length);
+  const unknownCultureLayer = {
+    summary: { text: '', evidenceIds: [] },
+    dimensions: ['influence', 'experimentation', 'peers', 'data', 'product', 'automation'].map(
+      (id) => ({ id, rating: null, reason: 'Not researched', evidenceIds: [], basis: 'unknown' }),
+    ),
+    strengths: [],
+    gaps: ['No team evidence'],
+    nextStep: 'Research independently',
+  };
+  const cultureResult = await call('jobs_company_culture_assess', {
+    companyId,
+    assessment: {
+      kind: 'culture_team',
+      methodologyVersion: 2,
+      profileVersion: configured.coreVersion,
+      business: { text: '', evidenceIds: [] },
+      company: unknownCultureLayer,
+      teams: [],
+    },
+  });
+  assert.equal(cultureResult.fit.culture.methodologyVersion, 2);
+  assert.equal(
+    (await call('jobs_company_assessment_history', { companyId })).assessments.length,
+    2,
+  );
   const researchDoc = {
     schema_version: '1.0',
     generated_at: new Date().toISOString(),
@@ -226,7 +314,7 @@ try {
   );
   assert.equal((await call('jobs_ats_list')).jobs[0].notes, 'Keep this');
   console.log(
-    'MCP check passed: stdio initialization, 24 tools, research preview/import/review/history/recalculate, dry-run, board registration, web plan, ATS preview/import/dedup/update. No external provider calls.',
+    'MCP check passed: stdio initialization, 36 tools including manual paid research status/guards, professional core/scenarios/assessment history, research preview/import/review/history/recalculate, dry-run, board registration, web plan, ATS preview/import/dedup/update. No external provider calls.',
   );
 } finally {
   await client.close();

@@ -98,10 +98,9 @@ export class SyncService {
             source,
             meteredFetcher(this.store, source.provider, budget, this.fetcher),
           );
-          const profile = source.profileId
-            ? this.store.get<Profile>('profiles', source.profileId)
-            : undefined;
-          if (source.profileId && !profile) throw new Error('Профиль не найден');
+          const profile = this.store.selection.profile(
+            source.scenarioId || source.profileId || 'all',
+          );
           const selected = profile
             ? jobs.filter((job) => acceptsJob(job, searchSchema.parse({}), profile))
             : jobs;
@@ -116,6 +115,8 @@ export class SyncService {
             this.store.recordRun({
               provider: source.provider,
               sourceId: source.id,
+              companyId: source.companyId || undefined,
+              sourceName: source.name,
               kind: 'sync',
               query: source.query,
               received: jobs.length,
@@ -138,6 +139,8 @@ export class SyncService {
           this.store.recordRun({
             provider: source.provider,
             sourceId: source.id,
+            companyId: source.companyId || undefined,
+            sourceName: source.name,
             kind: 'sync',
             query: source.query,
             received: 0,

@@ -62,7 +62,7 @@ it('shows only verified fresh culture tags, preserves job scope, GitHub identity
     research.review(traffic.id, { verified: true });
     const p = research.profile(c.id),
       culture = companyCulture(p.observations);
-    expect(culture.tags.map((t) => t.label).sort()).toEqual(['A/B', 'LLM']);
+    expect(culture.tags.map((t) => t.label).sort()).toEqual(['LLM', 'Эксперименты']);
     expect(culture.tags.find((t) => t.label === 'LLM')?.scope).toContain('По вакансии');
     expect(culture.github[0].url).toContain('github.com/company/experiments');
     expect(culture.traffic[0].text).toContain('MAU');

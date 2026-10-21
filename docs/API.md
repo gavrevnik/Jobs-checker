@@ -100,7 +100,7 @@ List/profile включают `scoresCalculatedAt`: score/coverage/criteria/high
 
 ## Проекция целевых вакансий компаний
 
-`GET /api/company-research` и `GET /api/company-research/:id` включают `targetVacancies` версии 1.0: companyId, total, open, jobIds, jobs, offices, sources, contract. Это read-only проекция общей ATS со всеми API-провайдерами, включая Adzuna; новые SQLite-записи не создаются. Target = Middle/Senior Product/Data Analyst, независимо от текущего profileId/country. `jobIds` открывают те же карточки ATS, включая архив; счётчик total не ограничен 30 днями, open ограничен свежестью проверки. Условия остальных колонок сохраняют прежний country/profile контекст. [Поля, источники дат, границы и UI-контракт](../discovery/comparison-columns.md).
+`GET /api/company-research` и `GET /api/company-research/:id` включают `targetVacancies` версии 1.0: companyId, total, open, jobIds, jobs, offices, sources, contract. Это read-only проекция общей ATS со всеми API-провайдерами, включая Adzuna; новые SQLite-записи не создаются. Это legacy-контракт; актуальный профиль использует версию 2.0, описанную ниже. `jobIds` открывают те же карточки ATS, включая архив; счётчик total не ограничен 30 днями, open ограничен свежестью проверки. Условия остальных колонок сохраняют прежний country/profile контекст. [Поля, источники дат, границы и UI-контракт](../discovery/comparison-columns.md).
 
 ## Аналитическая культура и источники колонок
 
@@ -121,3 +121,28 @@ Registry 1.6 adds descriptive `A07_SALARY_BENCHMARK` using existing observations
 ### Краткие факты research 1.0
 
 Observation принимает optional `short_facts: string[]` (до 3 непустых строк по 100 символов). Поле дополняет исходный value, scope и evidence, не меняет score. Для short_facts требуется non-null value и хотя бы один evidence. Полные ограничения и маршрутизация B04/B06/A05/AN02/AN03/AN06/P03_PUBLIC: [compact-facts](../discovery/compact-facts.md). Старые документы совместимы без поля; review остаётся обязательным для показа плашек.
+
+## Единый профиль и пригодность компаний
+
+- `GET /api/selection`: `core`, `coreVersion`, общая `version`, `scenarios`, `activeScenarioId`, `effectiveProfile`.
+- `PATCH /api/selection`: `{expectedVersion,core,scenarios,activeScenarioId}`; атомарное добавление новой версии. Удаление прежних scenario IDs запрещено, используйте `enabled:false`. Смена сценария не меняет coreVersion. `GET /api/selection/history` возвращает предыдущие версии.
+- `/state` дополнительно возвращает `selection` и `effectiveProfile`; `profiles` сохраняет исходные записи. UI использует effectiveProfile. Старые profileId источников разрешаются в мигрированные сценарии; `source.scenarioId` имеет приоритет.
+- Search, monitor и research list/profile/plan принимают `scenarioId`; `all` — ядро без географии. Поиск по умолчанию использует активный сценарий, monitoring — настройку источника. Неизвестный грейд/география в новом профиле остаются для review. Явный фильтр minSalary сохраняет строгую семантику.
+- `POST /api/company-research/:id/assessment`: [fitAssessmentSchema](../shared/company-fit.ts). Шесть ratings 0–4/null, причины, проверенные evidenceIds, общий scope, business/analytics, strengths/gaps/nextStep и текущий coreVersion как profileVersion. Несовместимый scope, непроверенные/устаревшие/чужие IDs отклоняются. Запись добавляется в историю; исходные факты и их review не меняются.
+- `GET /api/company-research/:id/assessments`: история содержательных оценок. List/profile возвращают `fit`: score, coverage, range, components, provisional/outdated, suggestedQueue, scope, сводки и следующий шаг. Модель не вызывается на GET. Смена ядра/утрата оснований помечает прежнюю оценку для пересмотра; старое значение сохранено как previousScore.
+- `PATCH /api/company-research/:id/preferences` поддерживает прежние `priority`, `notes` и дополнительные `practiceGoal`, `practiceHours`, `practiceReflection`. Изменения сохраняются в append-only `company_queue_history`; CRM/ATS не меняются.
+
+С выбранными семействами ядра `targetVacancies.contract.version=2.0`: role families, profileVersion и scenarioId. Счётчик следует эффективному профилю; Lead/продуктовый Data Science входят при выбранном семействе, неизвестный уровень имеет `targetLevel:review`. `scenarioFit` в каждой вакансии содержит ограничения и вопросы об условиях. Старый контракт 1.0 остаётся для legacy-вызовов без настроенных семейств. `open` — прежнее техническое поле свежего наблюдения; UI подписывает «Найдено недавно».
+
+Новые MCP: `jobs_selection_update`, `jobs_company_assess`, `jobs_company_assessment_history`. `jobs_profiles` возвращает ядро/сценарии вместе с исходными профилями. При устаревшей схеме MCP используйте эквивалентный локальный HTTP и переподключите клиент позже. История нового слоя хранится в той же SQLite; JSON ATS-импорт не восстанавливает весь research/assessment журнал — для этого нужен полный SQLite backup.
+
+`company-research/:id.targetVacancies.checkedSources` — последние сохранённые проверки источников данной компании: `{id, name, checkedAt, result, error, url}`. Нулевые ответы и технические ошибки включаются даже без сохранённых вакансий. Источники: привязанные `source_runs`/старый статус доски и `collection_sources` с колонкой `target_vacancies`; глобальные поиски агрегаторов без company attribution не включаются. Поле `error=true` предназначено для красной индикации ошибки. Просмотр не вызывает API провайдеров.
+
+## Glassdoor: только ручной платный запуск
+
+[Контракт и примеры](../discovery/glassdoor.md): status, quote, authorize, execute, локальная история, явный refresh run metadata и offline normalize экспортированного JSON. Семь MCP tools `jobs_company_paid_*`; запуск только по конкретному запросу, с одноразовым grant и лимитом на стороне Apify. Доступны reviews/interviews, без автоматического dataset download или research import.
+
+
+## Культура и команда
+
+`GET /api/company-research/:id/culture-plan` читает локальные факты, вопросы, sourceQueries и историю без provider calls. `POST /api/company-research/:id/culture-assessment` принимает [cultureAssessmentSchema](../shared/company-culture-fit.ts): kind culture_team, methodologyVersion 2, profileVersion, business, company, teams. Требует reviewed non-job evidence и прямого scope команды. Добавляет запись в прежнюю таблицу истории. GET `.../:id/assessments` возвращает и v1, и v2; profile.fit.culture содержит отдельные слои с confidence. Старые клиенты продолжают читать fit.score компании.

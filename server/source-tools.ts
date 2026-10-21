@@ -30,6 +30,7 @@ export const boardSchema = z.object({
   name: z.string().trim().min(1).max(200),
   companyId: z.string().max(100).default(''),
   profileId: z.string().max(100).default(''),
+  scenarioId: z.string().max(100).default(''),
   region: z.enum(['global', 'eu']).default('global'),
   monitoring: z.boolean().default(true),
   intervalHours: z.number().int().min(6).max(168).default(12),
@@ -107,17 +108,16 @@ export class SourceTools {
     });
   }
   private profile(id?: string) {
-    const profile = id ? this.store.get<Profile>('profiles', id) : undefined;
-    if (id && !profile) throw new Error('Профиль не найден');
-    return profile;
+    return this.store.selection.profile(id || undefined);
   }
   webPlan(input: unknown) {
     const args = searchSchema.parse(input);
-    return { resources: webSearchPlan(args, this.profile(args.profileId)) };
+    const profile = this.profile(args.scenarioId ?? args.profileId);
+    return { context: profile.selection, resources: webSearchPlan(args, profile) };
   }
   async search(input: unknown) {
     const args = searchSchema.parse(input);
-    const profile = this.profile(args.profileId);
+    const profile = this.profile(args.scenarioId ?? args.profileId);
     const filters = resolveFilters(args, profile);
     const all = this.store.list<Source>('sources');
     for (const id of args.sourceIds)
@@ -168,6 +168,7 @@ export class SourceTools {
     }
     const statuses = this.status().providers;
     const plan = {
+      context: profile?.selection,
       execute: args.execute,
       store: args.store,
       maxRequests: args.maxRequests,
@@ -277,6 +278,9 @@ export class SourceTools {
         results.push(result);
         this.store.recordRun({
           ...result,
+          companyId: source.companyId || undefined,
+          sourceName: source.name,
+          selection: profile?.selection,
           kind: args.store ? 'search+store' : 'search',
           query: source.query || filters.keywords.join(', '),
           requests: budget.used - before,
@@ -292,6 +296,7 @@ export class SourceTools {
     const args = z
       .object({
         sourceIds: z.array(z.string()).max(50).default([]),
+        scenarioId: z.string().max(100).optional(),
         execute: z.boolean().default(false),
         maxRequests: z.number().int().min(1).max(100).default(30),
       })
@@ -314,7 +319,18 @@ export class SourceTools {
         (!s.lastSync || Date.now() - Date.parse(s.lastSync) >= s.intervalHours * 3600000) &&
         (!s.lastAttempt || Date.now() - Date.parse(s.lastAttempt) >= 60000),
     );
-    if (!args.execute) return { execute: false, due, maxRequests: args.maxRequests };
+    if (args.scenarioId) this.profile(args.scenarioId);
+    if (!args.execute)
+      return {
+        execute: false,
+        due,
+        maxRequests: args.maxRequests,
+        contexts: due.map((s) => ({
+          sourceId: s.id,
+          selection: this.profile(args.scenarioId ?? (s.scenarioId || s.profileId || 'all'))
+            ?.selection,
+        })),
+      };
     if (this.busy) throw new Error('Поиск уже выполняется');
     this.busy = true;
     const budget = { used: 0, limit: args.maxRequests, cacheHits: 0, observedAt: '' };
@@ -328,9 +344,13 @@ export class SourceTools {
           matched = 0,
           added = 0,
           error = '';
+        let selection: Profile['selection'];
         this.store.put('sources', { ...source, lastAttempt: new Date().toISOString() });
         try {
-          const profile = this.profile(source.profileId);
+          const profile = this.profile(
+            args.scenarioId ?? (source.scenarioId || source.profileId || 'all'),
+          );
+          selection = profile?.selection;
           const raw = await fetchJobs(
             source,
             meteredFetcher(this.store, source.provider, budget, this.fetcher),
@@ -362,7 +382,10 @@ export class SourceTools {
           this.store.recordRun({
             provider: source.provider,
             sourceId: source.id,
+            companyId: source.companyId || undefined,
+            sourceName: source.name,
             kind: 'monitor',
+            selection,
             query: '',
             received,
             matched,
