@@ -16,6 +16,7 @@ afterEach(() => {
   for (const store of stores.splice(0)) store.db.close();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 it('shares a per-run budget across concurrent requests and retains a failed attempt', async () => {
@@ -59,26 +60,38 @@ it('does not charge a repeated SerpAPI search ID twice across different query UR
   ).toBe(1);
 });
 
+it('reports an empty Google Jobs result without suggesting a credential failure or charging the monthly quota', async () => {
+  const store = db();
+  const network = vi.fn<typeof fetch>().mockResolvedValue(
+    new Response(JSON.stringify({ error: "Google hasn't returned any results for this query." })),
+  );
+  const fetcher = meteredFetcher(store, 'serpapi', budget(), network);
+  await expect(fetcher('https://example.test/empty')).rejects.toThrow(
+    'SerpAPI: Google не вернул результатов для этого запроса',
+  );
+  expect(network).toHaveBeenCalledTimes(1);
+  expect(quota(store, 'serpapi').used).toBe(0);
+  expect(quota(store, 'serpapi').today).toMatchObject({ attempts: 1, counted: 0 });
+});
+
 it('returns and stores the completed source when the next source exceeds the request cap', async () => {
   const store = db();
-  const network = vi
-    .fn<typeof fetch>()
-    .mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          jobs: [
-            {
-              id: 'fixture-role',
-              title: 'Senior Analyst',
-              jobUrl: 'https://example.test/role',
-              absolute_url: 'https://example.test/role',
-              location: 'Berlin',
-              isListed: true,
-            },
-          ],
-        }),
-      ),
-    );
+  const network = vi.fn<typeof fetch>().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        jobs: [
+          {
+            id: 'fixture-role',
+            title: 'Senior Analyst',
+            jobUrl: 'https://example.test/role',
+            absolute_url: 'https://example.test/role',
+            location: 'Berlin',
+            isListed: true,
+          },
+        ],
+      }),
+    ),
+  );
   const tools = new SourceTools(store, network);
   tools.addBoard({ provider: 'ashby', name: 'A Fixture', board: 'fixture' });
   tools.addBoard({ provider: 'greenhouse', name: 'Z Fixture', board: 'fixture' });
@@ -141,4 +154,27 @@ it('keeps ATS ID, history, notes, AI feedback and follow-up after repeated norma
     description: 'Updated description',
     history: changed.history,
   });
+});
+
+it('keeps the cache receipt timestamp identical to the observation even if SQLite work crosses a clock tick', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-10-14T12:00:00Z'));
+  const store = db(),
+    allowance = budget();
+  const original = store.db.prepare.bind(store.db);
+  vi.spyOn(store.db, 'prepare').mockImplementation((sql) => {
+    if (sql.includes('INSERT INTO provider_cache')) vi.advanceTimersByTime(1);
+    return original(sql);
+  });
+  const network = vi.fn<typeof fetch>().mockResolvedValue(new Response('{"jobs":[]}'));
+  const fetcher = meteredFetcher(store, 'ashby', allowance, network);
+  await fetcher('https://example.test/fixture');
+  const firstSeen = allowance.observedAt;
+  expect(store.db.prepare('SELECT at FROM provider_cache').get()?.at).toBe(firstSeen);
+  vi.advanceTimersByTime(1000);
+  const repeated = budget();
+  await meteredFetcher(store, 'ashby', repeated, network)('https://example.test/fixture');
+  expect(repeated.observedAt).toBe(firstSeen);
+  expect(repeated.used).toBe(0);
+  expect(network).toHaveBeenCalledTimes(1);
 });

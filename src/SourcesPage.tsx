@@ -78,7 +78,7 @@ export function SourcesPage({
   const [expanded, setExpanded] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
-  const [selected, setSelected] = useState<ProviderId[]>(['arbeitnow', 'remotive']);
+  const [selected, setSelected] = useState<ProviderId[]>(['arbeitnow', 'remotive', 'jobicy']);
   const [keywords, setKeywords] = useState('');
   const [country, setCountry] = useState('');
   const [location, setLocation] = useState('');
@@ -239,6 +239,7 @@ export function SourcesPage({
                 value={country}
                 onChange={(e) => setCountry(e.target.value.toLowerCase().replace(/[^a-z]/g, ''))}
               />
+              {selected.includes('arbeitnow') && <small>Arbeitnow: de или gb; пусто = de</small>}
             </label>
             {tab === 'connections' && (
               <button

@@ -1,0 +1,166 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-10-14T12:00:00Z",
+  "research_mode": "external_research",
+  "companies": [
+    {
+      "identity": {
+        "name": "Example Analytics",
+        "website": "https://example.com",
+        "aliases": ["Example Labs"]
+      },
+      "observations": [
+        {
+          "criterion_id": "A04",
+          "value": null,
+          "verdict": "unknown",
+          "confidence": "high",
+          "scope": {
+            "country": "ES"
+          },
+          "reasoning": "Синтетический пример; ссылки демонстрационные, не реальные компании.",
+          "evidence": []
+        },
+        {
+          "criterion_id": "T01",
+          "value": ["ClickHouse", "Spark"],
+          "verdict": "pass",
+          "confidence": "high",
+          "scope": {},
+          "reasoning": "Синтетический пример; ссылки демонстрационные, не реальные компании.",
+          "evidence": [
+            {
+              "url": "https://example.com/engineering/data",
+              "title": "Synthetic source: engineering/data",
+              "source_type": "engineering",
+              "published_at": "2026-10-10",
+              "observed_at": "2026-10-14",
+              "excerpt": "We use ClickHouse and Spark."
+            }
+          ]
+        },
+        {
+          "criterion_id": "AN04",
+          "value": true,
+          "verdict": "pass",
+          "confidence": "high",
+          "scope": {},
+          "reasoning": "Синтетический пример; ссылки демонстрационные, не реальные компании.",
+          "evidence": [
+            {
+              "url": "https://example.com/engineering/experiments",
+              "title": "Synthetic source: engineering/experiments",
+              "source_type": "engineering",
+              "published_at": "2026-10-10",
+              "observed_at": "2026-10-14",
+              "excerpt": "Our experimentation platform uses variance reduction."
+            }
+          ]
+        },
+        {
+          "criterion_id": "B03",
+          "value": "Личное впечатление: понятный UX.",
+          "verdict": "unknown",
+          "confidence": "high",
+          "scope": {},
+          "reasoning": "Синтетический пример; ссылки демонстрационные, не реальные компании.",
+          "evidence": []
+        }
+      ],
+      "job_urls": ["https://example.com/careers/analyst"],
+      "red_flags": [
+        {
+          "title": "Reported layoffs",
+          "description": "Синтетическое сообщение о сокращениях; требуется проверка.",
+          "severity": "high",
+          "confidence": "medium",
+          "scope": {},
+          "occurred_at": "2026-09-01",
+          "evidence": [
+            {
+              "url": "https://example.com/news/layoffs",
+              "title": "Synthetic source: news/layoffs",
+              "source_type": "news",
+              "published_at": "2026-10-10",
+              "observed_at": "2026-10-14",
+              "excerpt": "Layoffs reported on September 1."
+            }
+          ]
+        }
+      ],
+      "notes": "Не импортировать в live DB: синтетический fixture."
+    },
+    {
+      "identity": {
+        "name": "Example Europe",
+        "website": "https://example.org"
+      },
+      "observations": [
+        {
+          "criterion_id": "A04",
+          "value": true,
+          "verdict": "conflicting",
+          "confidence": "high",
+          "scope": {
+            "country": "DE",
+            "role": "Senior Analyst"
+          },
+          "reasoning": "Синтетический пример; ссылки демонстрационные, не реальные компании.",
+          "evidence": [
+            {
+              "url": "https://example.com/policy/visa",
+              "title": "Synthetic source: policy/visa",
+              "source_type": "official",
+              "published_at": "2026-10-10",
+              "observed_at": "2026-10-14",
+              "excerpt": "Sponsorship offered in Germany."
+            }
+          ]
+        },
+        {
+          "criterion_id": "A04",
+          "value": false,
+          "verdict": "conflicting",
+          "confidence": "high",
+          "scope": {
+            "country": "DE",
+            "role": "Senior Analyst",
+            "job_url": "https://example.com/careers/berlin"
+          },
+          "reasoning": "Синтетический пример; ссылки демонстрационные, не реальные компании.",
+          "evidence": [
+            {
+              "url": "https://example.com/careers/berlin",
+              "title": "Synthetic source: careers/berlin",
+              "source_type": "job",
+              "published_at": "2026-10-10",
+              "observed_at": "2026-10-14",
+              "excerpt": "Applicants need existing work authorisation."
+            }
+          ]
+        },
+        {
+          "criterion_id": "P01",
+          "value": "Сотрудник сообщает о переработках.",
+          "verdict": "unknown",
+          "confidence": "high",
+          "scope": {},
+          "reasoning": "Синтетический пример; ссылки демонстрационные, не реальные компании.",
+          "evidence": [
+            {
+              "url": "https://example.com/reviews/1",
+              "title": "Synthetic source: reviews/1",
+              "source_type": "employee_report",
+              "published_at": "2026-10-10",
+              "observed_at": "2026-10-14",
+              "excerpt": "An employee reports overtime."
+            }
+          ]
+        }
+      ],
+      "job_urls": [],
+      "red_flags": [],
+      "notes": "Противоречия сохраняются отдельными observations; не распространять на другие страны/роли."
+    }
+  ]
+}

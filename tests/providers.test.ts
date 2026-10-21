@@ -15,8 +15,24 @@ const response = (body: unknown) =>
 const stores: Store[] = [];
 afterEach(() => {
   for (const s of stores.splice(0)) s.db.close();
+  vi.unstubAllEnvs();
 });
 describe('Source adapters', () => {
+  it('leaves SerpAPI out of general refresh and runs it only for an explicitly selected source', async () => {
+    vi.stubEnv('SERPAPI_API_KEY', 'fixture-key');
+    const store = new Store(':memory:');
+    stores.push(store);
+    const s = store.saveSource({
+      provider: 'serpapi',
+      name: 'Explicit Google Jobs',
+      query: 'analyst',
+    });
+    const mock = vi.fn<typeof fetch>().mockResolvedValue(response({ jobs: [], jobs_results: [] }));
+    await new SyncService(store, mock).run();
+    expect(mock.mock.calls.some(([url]) => String(url).includes('serpapi'))).toBe(false);
+    await new SyncService(store, mock).run(s.id);
+    expect(mock.mock.calls.filter(([url]) => String(url).includes('serpapi'))).toHaveLength(1);
+  });
   it('turns encoded markup into plain text and strips scripts', () => {
     expect(plain('&lt;p&gt;Hello &amp;amp; world&lt;/p&gt;<script>alert(1)</script>')).toBe(
       'Hello & world',

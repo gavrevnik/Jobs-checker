@@ -158,9 +158,52 @@ export function quota(store: Store, provider: string, now = new Date()): Provide
     ];
     note =
       'Считаются все попытки для текущего регионального ключа. Старые записи без идентификатора ключа включены консервативно.';
+  } else if (provider === 'jobicy') {
+    plan = 'Jobicy · public free';
+    pricingUrl = 'https://jobicy.com/jobs-rss-feed';
+    const last = store.db
+      .prepare('SELECT value FROM settings WHERE key=?')
+      .get('jobicy:last-feed-pass')?.value;
+    note =
+      'Месячная/суточная числовая квота не заявлена. Новый проход не чаще раза/час; cursor-страницы последовательно, до 200 записей/страница. Окно 7 дней, задержка 3 ч. Счётчик показывает HTTP-попытки, а не число проходов. Платные ключи и прямые ATS URLs не используются.';
+    if (last)
+      note += ` Последний старт прохода: ${last}; следующий не ранее ${new Date(Date.parse(String(last)) + 3600000).toISOString()}.`;
   }
   const primary = windows[0];
+  const timeZone = 'Europe/Belgrade';
+  const dayFormat = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const today = dayFormat.format(now);
+  // The local day can span 25 hours at the DST transition. The wider SQL
+  // range is narrowed by the actual calendar date before counting.
+  const recentRows = store.db
+    .prepare(
+      "SELECT at,outcome FROM provider_requests WHERE provider=? AND at>=? AND at<=? AND (?='' OR scope=? OR scope='')",
+    )
+    .all(
+      provider,
+      new Date(now.getTime() - 26 * 3600000).toISOString(),
+      now.toISOString(),
+      scope,
+      scope,
+    );
+  const todayRows = recentRows.filter((r) => dayFormat.format(new Date(String(r.at))) === today);
   return {
+    last24Hours: {
+      attempts: recentRows.filter((r) => Date.parse(String(r.at)) > now.getTime() - DAY).length,
+    },
+    today: {
+      date: today,
+      timeZone,
+      attempts: todayRows.length,
+      counted: todayRows.filter(
+        (r) => provider !== 'serpapi' || !['error', 'cached'].includes(String(r.outcome)),
+      ).length,
+    },
     used:
       primary?.used ??
       Number(

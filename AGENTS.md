@@ -12,6 +12,13 @@ When this checkout is inside `life-stack`, first read the shared [workspace inst
 - Update `README.md` when setup, storage, providers, or user-visible behavior changes.
 - Before handing off code changes, run `npm test`, `npm run build`, and relevant focused verification.
 
+## Ручные Jobs workflows
+
+- Новые компании и повторный ресерч: [jobs-discovery](.agents/skills/jobs-discovery/SKILL.md).
+- Вакансии известных компаний: [jobs-monitoring](.agents/skills/jobs-monitoring/SKILL.md).
+- Пересмотр пула и предложения резерва/архива: [jobs-pool-review](.agents/skills/jobs-pool-review/SKILL.md).
+- [Общие правила](discovery/workflow-common.md) и [Careers/ATS/веб-источники](discovery/hiring-sources.md) сохраняют единые контракты. Скиллы не включают расписание автоматически.
+
 ## Общие коннекторы и Knowledge
 
 - Provider API/transport implementations находятся в [Personal Radar connectors](../personal-radar/connectors/README.md); SQLite, domain filters/dedupe/AI/UI и прикладные MCP остаются здесь. Сохранять обязательные quota adapters; тестировать внешние операции mocks на фактическом общем модуле.

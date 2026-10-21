@@ -136,7 +136,7 @@ export class SourceTools {
       else {
         // Separate provider queries keep keyword synonyms portable across APIs.
         const queries =
-          ['arbeitnow', 'remotive'].includes(provider) ||
+          ['arbeitnow', 'remotive', 'jobicy'].includes(provider) ||
           (provider === 'adzuna' && hasAdzunaQuery(args.adzuna))
             ? ['']
             : [
@@ -153,12 +153,12 @@ export class SourceTools {
           targets.push({
             ...sourceSchema.parse({
               provider,
-              name: provider,
+              name: provider === 'arbeitnow' && args.country === 'gb' ? 'Arbeitnow UK' : provider,
               query,
               country: args.country,
               location: args.location,
             }),
-            id: `discovery:${provider}`,
+            id: `discovery:${provider}${provider === 'arbeitnow' && args.country === 'gb' ? ':gb' : ''}`,
             lastSync: '',
             lastAttempt: '',
             error: '',
@@ -179,6 +179,7 @@ export class SourceTools {
         name: s.name,
         board: s.board,
         query: s.query,
+        ...(s.provider === 'arbeitnow' ? { country: s.country || 'de' } : {}),
         ...(s.provider === 'adzuna'
           ? {
               country: s.country,

@@ -1,0 +1,22 @@
+.company-used-sources {
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px solid #dfe5ec;
+}
+.company-used-sources ul {
+  padding-left: 20px;
+}
+.company-used-sources li {
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.company-used-sources small {
+  display: block;
+  color: #67758a;
+  font-size: 12px;
+}
+.company-used-sources p {
+  margin: 4px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}

@@ -28,8 +28,22 @@ export function meteredFetcher(
   budget: { used: number; limit: number; cacheHits: number; observedAt: string },
   fetcher: typeof fetch = fetch,
 ): typeof fetch {
+  let jobicyCursor: string | null | undefined;
   return async (url, init) => {
     if (!providerEnabled(store, provider)) throw new Error('Адаптер выключен');
+    const jobicyUrl = provider === 'jobicy' ? new URL(String(url)) : null;
+    if (jobicyUrl) {
+      if (
+        jobicyUrl.origin !== 'https://jobicy.com' ||
+        jobicyUrl.pathname !== '/api/v2/remote-jobs' ||
+        new Headers(init?.headers).has('Authorization') ||
+        (init?.method && init.method !== 'GET')
+      )
+        throw new Error('Jobicy: разрешён только бесплатный публичный feed');
+      const cursor = jobicyUrl.searchParams.get('cursor');
+      if (cursor && cursor !== jobicyCursor)
+        throw new Error('Jobicy: cursor должен продолжать предыдущую страницу прохода');
+    }
     const key = createHash('sha256')
       .update(`${provider}|${url}|${init?.body || ''}`)
       .digest('hex');
@@ -37,6 +51,7 @@ export function meteredFetcher(
       .prepare('SELECT body, at FROM provider_cache WHERE key=? AND expires>?')
       .get(key, Date.now());
     if (cached) {
+      if (jobicyUrl) jobicyCursor = JSON.parse(String(cached.body)).nextCursor ?? null;
       budget.cacheHits++;
       if (!budget.observedAt || String(cached.at) < budget.observedAt)
         budget.observedAt = String(cached.at);
@@ -60,6 +75,20 @@ export function meteredFetcher(
             .get(provider, new Date(Date.now() - ms).toISOString())?.n || 0,
         );
         if (count >= limit) throw new Error('Лимит частоты запросов; повторите позже');
+      }
+      // Count traversal starts, not pages: hourly guard is shared by UI/API/MCP
+      // and survives restarts. A failed first request also reserves the hour.
+      if (jobicyUrl && !jobicyUrl.searchParams.has('cursor')) {
+        const last = store.db
+          .prepare('SELECT value FROM settings WHERE key=?')
+          .get('jobicy:last-feed-pass')?.value;
+        if (last && Date.now() - Date.parse(String(last)) < 3600000)
+          throw new Error('Jobicy: новый проход разрешён не чаще раза в час; используйте кэш');
+        store.db
+          .prepare(
+            'INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+          )
+          .run('jobicy:last-feed-pass', new Date().toISOString());
       }
       return store.db
         .prepare('INSERT INTO provider_requests(provider,at,scope) VALUES (?,?,?)')
@@ -98,8 +127,14 @@ export function meteredFetcher(
     const parsed = JSON.parse(body);
     if (parsed?.error) {
       store.db.prepare("UPDATE provider_requests SET outcome='error' WHERE rowid=?").run(requestId);
+      if (
+        provider === 'serpapi' &&
+        parsed.error === "Google hasn't returned any results for this query."
+      )
+        throw new Error('SerpAPI: Google не вернул результатов для этого запроса');
       throw new Error('API вернул ошибку; проверьте ключ и параметры');
     }
+    if (jobicyUrl) jobicyCursor = parsed.nextCursor ?? null;
     const externalId =
       provider === 'serpapi' && typeof parsed?.search_metadata?.id === 'string'
         ? parsed.search_metadata.id.slice(0, 200)
@@ -121,7 +156,7 @@ export function meteredFetcher(
       .prepare(
         'INSERT INTO provider_cache VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET body=excluded.body,at=excluded.at,expires=excluded.expires',
       )
-      .run(key, body, new Date().toISOString(), Date.now() + ttl);
+      .run(key, body, observedAt, Date.now() + ttl);
     store.db.prepare('DELETE FROM provider_cache WHERE expires<?').run(Date.now());
     return new Response(body, { headers: { 'Content-Type': 'application/json' } });
   };

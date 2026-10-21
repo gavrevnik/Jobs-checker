@@ -34,6 +34,37 @@ afterEach(() => {
 });
 
 describe('Persistent provider quotas', () => {
+  it('reports rolling daily attempts separately from the current calendar day without adding a quota window', () => {
+    clock('2026-10-20T10:00:00Z');
+    const store = db();
+    record(store, 'remotive', '2026-10-19T10:00:00Z');
+    record(store, 'remotive', '2026-10-19T11:00:00Z');
+    record(store, 'remotive', '2026-10-20T09:00:00Z');
+    expect(quota(store, 'remotive')).toMatchObject({
+      last24Hours: { attempts: 2 },
+      today: { attempts: 1 },
+      windows: [],
+    });
+  });
+  it('counts today in Belgrade across the UTC boundary and separates attempts from charged SerpAPI searches', () => {
+    clock('2026-10-19T22:30:00.000Z');
+    const store = db();
+    record(store, 'serpapi', '2026-10-19T21:59:59.000Z', 'success');
+    record(store, 'serpapi', '2026-10-19T22:01:00.000Z', 'success');
+    record(store, 'serpapi', '2026-10-19T22:02:00.000Z', 'error');
+    record(store, 'serpapi', '2026-10-19T22:03:00.000Z', 'cached');
+    record(store, 'serpapi', '2026-10-19T22:04:00.000Z', 'unknown');
+    record(store, 'serpapi', '2026-10-19T23:00:00.000Z', 'success');
+    expect(quota(store, 'serpapi').today).toEqual({
+      date: '2026-10-20',
+      timeZone: 'Europe/Belgrade',
+      attempts: 4,
+      counted: 2,
+    });
+    clock('2026-10-25T22:30:00.000Z');
+    record(store, 'adzuna', '2026-10-24T22:05:00.000Z', 'success');
+    expect(quota(store, 'adzuna').today?.attempts).toBe(1);
+  });
   it('resets the UTC month without erasing history or resetting rolling daily/weekly windows', () => {
     clock('2026-10-31T23:59:59.999Z');
     const store = db();

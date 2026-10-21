@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { companySourceLinkSchema } from './company-links.js';
+import { companyHiringSchema } from './company-hiring.js';
 
 export const stages = ['new', 'saved', 'applied', 'interview', 'offer', 'archived'] as const;
 export const stageLabels: Record<string, string> = {
@@ -19,6 +21,7 @@ export const providerLabels: Record<string, string> = {
   manual: 'Вручную',
   import: 'Импорт',
   remotive: 'Remotive',
+  jobicy: 'Jobicy',
   greenhouse: 'Greenhouse',
   lever: 'Lever',
   ashby: 'Ashby',
@@ -64,6 +67,8 @@ export const companyTypeLabels = {
 export const companySchema = z.object({
   name: z.string().trim().min(1, 'Укажите название компании').max(200),
   website: link.default(''),
+  hiringSources: companyHiringSchema.optional(),
+  sourceLinks: z.array(companySourceLinkSchema).max(300).optional(),
   industry: text.default(''),
   location: text.default(''),
   size: text.default(''),
@@ -136,6 +141,7 @@ export const jobSchema = z
         'manual',
         'import',
         'remotive',
+        'jobicy',
         'greenhouse',
         'lever',
         'ashby',
@@ -183,6 +189,7 @@ export const sourceSchema = z
   .object({
     provider: z.enum([
       'remotive',
+      'jobicy',
       'greenhouse',
       'lever',
       'ashby',

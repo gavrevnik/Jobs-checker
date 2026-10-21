@@ -1,3 +1,4 @@
+import { registry } from '../shared/company-research.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { spawn } from 'node:child_process';
@@ -43,14 +44,17 @@ try {
     }),
   );
   const listed = await client.listTools();
-  assert.equal(listed.tools.length, 12);
+  assert.equal(listed.tools.length, 24);
+  assert.ok(listed.tools.some((t) => t.name === 'jobs_company_research_recalculate'));
+  assert.ok(listed.tools.some((t) => t.name === 'jobs_company_research_import'));
   const call = async (name: string, args: Record<string, unknown> = {}) => {
     const result = await client.callTool({ name, arguments: args });
     assert.ok(!result.isError, JSON.stringify(result));
     return result.structuredContent as any;
   };
   const status = await call('jobs_sources_status');
-  assert.equal(status.providers.length, 9);
+  assert.equal(status.providers.length, 10);
+  assert.ok(status.providers.some((p: any) => p.id === 'jobicy' && !p.missing.length));
   assert.equal(status.providers.find((p: any) => p.id === 'adzuna').quota.limit, 2500);
   assert.equal(status.providers.find((p: any) => p.id === 'jooble').quota.limit, 500);
   assert.equal(
@@ -136,9 +140,93 @@ try {
   });
   assert.equal(board.region, 'eu');
   assert.equal((await call('jobs_monitor_companies')).due.length, 1);
-  assert.equal((await call('jobs_web_search_plan', { keywords: ['SQL'] })).resources.length, 6);
+  const web = (await call('jobs_web_search_plan', { keywords: ['SQL'] })).resources;
+  assert.equal(web.length, 7);
+  assert.ok(web.some((r: any) => r.id === 'workday' && r.query.includes('myworkdayjobs.com')));
+  const jobicyPlan = await call('jobs_search', { providers: ['jobicy'], keywords: ['Data Analyst'] });
+  assert.equal(jobicyPlan.execute, false);
+  assert.equal(jobicyPlan.requests, 0);
+  assert.equal(jobicyPlan.providers[0].status, 'ready');
+  const criteria = await call('jobs_company_research_criteria');
+  assert.equal(criteria.version, registry.version);
+  const companyId = job.companyId;
+  const researchDoc = {
+    schema_version: '1.0',
+    generated_at: new Date().toISOString(),
+    research_mode: 'external_research',
+    companies: [
+      {
+        identity: { name: job.company, company_id: companyId },
+        observations: [
+          {
+            criterion_id: 'A04',
+            value: true,
+            confidence: 'high',
+            scope: { country: 'ES' },
+            reasoning: 'Fixture policy',
+            evidence: [
+              {
+                url: 'https://example.com/policy',
+                title: 'Fixture policy',
+                source_type: 'official',
+                observed_at: new Date().toISOString(),
+                excerpt: 'Sponsorship explicitly offered in fixture',
+              },
+            ],
+          },
+        ],
+        job_urls: [],
+        red_flags: [],
+        notes: 'Fixture research',
+      },
+    ],
+  };
+  const preview = await call('jobs_company_research_preview', { data: researchDoc });
+  assert.equal(preview.entries[0].companyId, companyId);
+  assert.equal((await call('jobs_company_research_profile', { companyId })).observations.length, 0);
+  const imported = await call('jobs_company_research_import', {
+    previewId: preview.previewId,
+    confirmed: true,
+  });
+  assert.equal(imported.addedFacts, 1);
+  assert.equal(
+    (await call('jobs_company_research_import', { previewId: preview.previewId, confirmed: true }))
+      .alreadyImported,
+    true,
+  );
+  const researched = await call('jobs_company_research_profile', { companyId, country: 'ES' });
+  assert.equal(researched.scores.A.pass, 0);
+  await call('jobs_company_research_review', {
+    observationId: researched.observations[0].id,
+    verified: true,
+    note: 'Read fixture source',
+  });
+  assert.equal(
+    (await call('jobs_company_research_profile', { companyId, country: 'ES' })).scores.A.pass,
+    1,
+  );
+  await call('jobs_company_research_priority', {
+    companyId,
+    priority: 'Target',
+    notes: 'Keep discovery note',
+  });
+  assert.equal((await call('jobs_company_research_plan', { companyId })).priority, 'Target');
+  assert.equal((await call('jobs_company_research_history', { companyId })).runs.length, 1);
+  const recalculated = await call('jobs_company_research_recalculate', { companyIds: [companyId] });
+  assert.equal(recalculated.companies.length, 1);
+  const calculatedAt = recalculated.companies[0].scoresCalculatedAt;
+  const refreshed = await call('jobs_company_research_list', { country: 'ES' });
+  assert.equal(
+    refreshed.companies.find((c: any) => c.company.id === companyId).scoresCalculatedAt,
+    calculatedAt,
+  );
+  assert.equal(
+    (await call('jobs_company_research_profile', { companyId, country: 'FR' })).scoresCalculatedAt,
+    calculatedAt,
+  );
+  assert.equal((await call('jobs_ats_list')).jobs[0].notes, 'Keep this');
   console.log(
-    'MCP check passed: stdio initialization, 12 tools, dry-run, board registration, web plan, ATS preview/import/dedup/update. No external provider calls.',
+    'MCP check passed: stdio initialization, 24 tools, research preview/import/review/history/recalculate, dry-run, board registration, web plan, ATS preview/import/dedup/update. No external provider calls.',
   );
 } finally {
   await client.close();

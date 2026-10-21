@@ -39,6 +39,42 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('Provider tools and ATS ingestion', () => {
+  it('keeps UK and German Arbeitnow cache, source identity and workflow independent', async () => {
+    const s = db();
+    const mock = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+      const uk = new URL(String(url)).hostname === 'www.arbeitnow.co.uk';
+      return response({
+        data: [
+          {
+            ...posting,
+            url: `https://${uk ? 'www.arbeitnow.co.uk' : 'www.arbeitnow.com'}/jobs/shared-slug`,
+            location: uk ? 'London' : 'Berlin',
+            tags: ['x'.repeat(200), '<b>Analytics</b>'],
+          },
+        ],
+      });
+    });
+    const tools = new SourceTools(s, mock);
+    const args = { providers: ['arbeitnow'], keywords: ['analyst'], execute: true, store: true };
+    const de = await tools.search(args);
+    s.updateJob(de.jobs[0].atsId!, { stage: 'saved', notes: 'Keep German workflow' });
+    const uk = await tools.search({ ...args, country: 'gb' });
+    expect(uk.targets[0]).toMatchObject({
+      name: 'Arbeitnow UK',
+      country: 'gb',
+      sourceId: 'discovery:arbeitnow:gb',
+    });
+    expect(uk.jobs[0]).toMatchObject({
+      source: 'arbeitnow',
+      location: 'London',
+      seniority: 'senior',
+    });
+    expect(uk.jobs[0].tags).toEqual(['x'.repeat(80), 'Analytics']);
+    expect(s.list<Job>('jobs')).toHaveLength(2);
+    expect(s.get<Job>('jobs', de.jobs[0].atsId!)?.notes).toBe('Keep German workflow');
+    expect((await tools.search({ ...args, country: 'gb' })).requests).toBe(0);
+    expect(mock).toHaveBeenCalledTimes(2);
+  });
   it('stores only reviewed external IDs even when the search filters are broad', async () => {
     const s = db();
     const mock = vi.fn<typeof fetch>().mockResolvedValue(

@@ -18,8 +18,15 @@ function seniority(title: string): JobInput['seniority'] {
   return 'unknown';
 }
 
-function validateJob(row: { title: string }) {
-  return jobSchema.parse({ ...row, seniority: seniority(row.title) });
+function validateJob(row: { title: string; source?: string; jobLevel?: unknown }) {
+  const titleLevel = seniority(row.title);
+  // A provider's explicit level can fill an unknown title; never override a
+  // Junior/Lead title or infer Mid merely from an unqualified analyst title.
+  const level =
+    row.source === 'jobicy' && titleLevel === 'unknown'
+      ? seniority(String(row.jobLevel || ''))
+      : titleLevel;
+  return jobSchema.parse({ ...row, seniority: level });
 }
 export type Fetcher = typeof fetch;
 export function normalize(provider: Source['provider'], raw: unknown, source: Source): JobInput {
@@ -57,10 +64,16 @@ export class SyncService {
           (s) =>
             s.enabled &&
             providerEnabled(this.store, s.provider) &&
+            (s.provider !== 'serpapi' || !!sourceId) &&
             (!sourceId || sourceId === s.id),
         );
       for (const source of sources) {
-        const cooldown = source.provider === 'remotive' ? 6 * 3600000 : 15 * 60000;
+        const cooldown =
+          source.provider === 'remotive'
+            ? 6 * 3600000
+            : source.provider === 'jobicy'
+              ? 3600000
+              : 15 * 60000;
         const last = source.lastSync && new Date(source.lastSync).getTime();
         const attempted = source.lastAttempt && new Date(source.lastAttempt).getTime();
         if (

@@ -20,11 +20,13 @@ export function Modal({
   children,
   close,
   wide = false,
+  className = '',
 }: {
   title: string;
   children: ReactNode;
   close: () => void;
   wide?: boolean;
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -74,7 +76,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`modal ${wide ? 'wide' : ''}`}
+        className={`modal ${wide ? 'wide' : ''} ${className}`}
       >
         <div className="modal-head">
           <h2>{title}</h2>
@@ -590,8 +592,8 @@ export function ProfileForm({ profile, done }: { profile?: Profile; done: () => 
       }}
     >
       <p className="form-intro">
-        Опишите, что вам подходит. Jobs checker покажет совпадения по этим критериям и объяснит оценку
-        каждой вакансии.
+        Опишите, что вам подходит. Jobs checker покажет совпадения по этим критериям и объяснит
+        оценку каждой вакансии.
       </p>
       <div className="form-grid">
         <Field label="Название профиля" full>
@@ -728,7 +730,7 @@ export function SourceForm({ done, companyName = '' }: { done: () => void; compa
       <div className="form-grid">
         <Field label="Источник" full>
           <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-            {['ashby', 'greenhouse', 'lever', 'remotive', 'adzuna'].map((v) => (
+            {['ashby', 'greenhouse', 'lever', 'arbeitnow', 'remotive', 'adzuna'].map((v) => (
               <option key={v} value={v}>
                 {providerLabels[v]}
               </option>
@@ -768,6 +770,14 @@ export function SourceForm({ done, companyName = '' }: { done: () => void; compa
             <select name="region">
               <option value="global">Global</option>
               <option value="eu">EU</option>
+            </select>
+          </Field>
+        )}
+        {provider === 'arbeitnow' && (
+          <Field label="Рынок Arbeitnow">
+            <select name="country" defaultValue="de">
+              <option value="de">Германия</option>
+              <option value="gb">Великобритания · Arbeitnow UK</option>
             </select>
           </Field>
         )}
@@ -811,9 +821,11 @@ export function SourceForm({ done, companyName = '' }: { done: () => void; compa
       <div className="callout">
         {provider === 'remotive'
           ? 'Открытая лента удалённых вакансий разных компаний. Данные обновляются не чаще раза в 6 часов, публикации поступают с задержкой 24 часа.'
-          : provider === 'adzuna'
-            ? 'Нужны бесплатная регистрация разработчика и ключи в .env: ADZUNA_APP_ID и ADZUNA_APP_KEY. Один запуск загружает до 150 свежих результатов по запросу. Доступ и квоты зависят от аккаунта.'
-            : 'Публичные вакансии конкретной компании, без ключа API. Идентификатор находится в URL её карьерной страницы. Обновление — не чаще раза в 15 минут.'}
+          : provider === 'arbeitnow'
+            ? 'Бесплатная лента вакансий выбранного рынка без API-ключа. Германия и Великобритания используют отдельные адреса API и кэш; роли и города фильтруются после загрузки.'
+            : provider === 'adzuna'
+              ? 'Нужны бесплатная регистрация разработчика и ключи в .env: ADZUNA_APP_ID и ADZUNA_APP_KEY. Один запуск загружает до 150 свежих результатов по запросу. Доступ и квоты зависят от аккаунта.'
+              : 'Публичные вакансии конкретной компании, без ключа API. Идентификатор находится в URL её карьерной страницы. Обновление — не чаще раза в 15 минут.'}
       </div>
       <ErrorText error={error} />
       <div className="form-footer">

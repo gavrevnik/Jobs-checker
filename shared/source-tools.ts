@@ -9,11 +9,34 @@ export const providerIds = [
   'smartrecruiters',
   'arbeitnow',
   'remotive',
+  'jobicy',
   'adzuna',
   'serpapi',
   'jooble',
 ] as const;
 export type ProviderId = (typeof providerIds)[number];
+export const providerActivation: Record<ProviderId, string> = {
+  adzuna:
+    'По запросу обновления рекомендаций или поиска вакансий, когда выбран Adzuna. Фоновое расписание не включено.',
+  serpapi:
+    'Только по отдельному запросу пользователя: явный выбор SerpAPI в поиске с ограниченным бюджетом. Не входит в обычное общее обновление и мониторинг.',
+  jooble:
+    'При явном выборе Jooble в поиске и наличии регионального ключа. Автоматического обновления нет.',
+  arbeitnow:
+    'При поиске или обновлении рекомендаций с Arbeitnow; также при ручном обновлении подключённой ленты.',
+  remotive:
+    'При поиске или обновлении рекомендаций с Remotive; также при ручном обновлении ленты. Не чаще одного сетевого запроса за 6 часов.',
+  jobicy:
+    'По запросу исследования или обновления вакансий с выбранным Jobicy. Один общий проход не чаще раза в час; cursor-страницы последовательно. Фонового расписания нет.',
+  greenhouse:
+    'По запросу обновления подключённых досок компаний или мониторинга. Только добавленные и включённые доски; автоматического расписания нет.',
+  lever:
+    'По запросу обновления подключённых досок компаний или мониторинга. Только добавленные и включённые доски; автоматического расписания нет.',
+  ashby:
+    'По запросу обновления подключённых досок компаний или мониторинга. Только добавленные и включённые доски; автоматического расписания нет.',
+  smartrecruiters:
+    'По запросу обновления подключённых досок или мониторинга. Полные описания выбранных вакансий загружаются отдельно и тоже расходуют запросы.',
+};
 export const boardProviders: readonly string[] = [
   'greenhouse',
   'lever',
@@ -64,7 +87,7 @@ export const providerCatalog: {
     id: 'arbeitnow',
     name: 'Arbeitnow',
     group: 'discovery',
-    description: 'Tech-вакансии · преимущественно Германия',
+    description: 'Tech-вакансии · Германия (de) и Великобритания (gb)',
     docs: 'https://www.arbeitnow.com/blog/job-board-api',
     credentials: [],
     cost: 'Бесплатно · без ключа',
@@ -79,6 +102,17 @@ export const providerCatalog: {
     credentials: [],
     cost: 'Бесплатно · не чаще 4 раз в сутки',
     ttlHours: 6,
+  },
+  {
+    id: 'jobicy',
+    name: 'Jobicy',
+    group: 'discovery',
+    description:
+      'Удалённые вакансии за 7 дней · задержка 3 ч · до 200 на страницу; ссылки Jobicy, прямые ATS-ссылки не включены',
+    docs: 'https://jobicy.com/jobs-rss-feed',
+    credentials: [],
+    cost: 'Бесплатный public API · без ключа и карты · новый проход не чаще раза/час',
+    ttlHours: 1,
   },
   {
     id: 'greenhouse',
@@ -153,6 +187,12 @@ export const webSources = [
     description: 'Европейская сеть вакансий',
   },
   {
+    id: 'workday',
+    name: 'Workday Careers',
+    domain: 'myworkdayjobs.com',
+    description: 'Официальные карьерные доски компаний · веб-проверка, отдельного API-адаптера нет',
+  },
+  {
     id: 'careers',
     name: 'Карьерные страницы',
     domain: '',
@@ -166,7 +206,11 @@ export const searchSchema = z.object({
     .describe(
       'Native Adzuna filters only; other providers ignore them. Profile/local filters still apply.',
     ),
-  providers: z.array(z.enum(providerIds)).min(1).max(9).default(['arbeitnow', 'remotive']),
+  providers: z
+    .array(z.enum(providerIds))
+    .min(1)
+    .max(providerIds.length)
+    .default(['arbeitnow', 'remotive', 'jobicy']),
   sourceIds: z.array(z.string().min(1).max(100)).max(50).default([]),
   externalIds: z.array(z.string().min(1).max(2000)).max(500).default([]),
   profileId: z.string().max(100).optional(),
@@ -294,6 +338,8 @@ export type QuotaWindow = {
   resetRule: string;
 };
 export type ProviderQuota = {
+  last24Hours?: { attempts: number };
+  today?: { date: string; timeZone: string; attempts: number; counted: number };
   used: number;
   limit: number | null;
   remaining: number | null;

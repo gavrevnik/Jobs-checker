@@ -1,3 +1,4 @@
+import { registry } from '../shared/company-research.js';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -85,11 +86,110 @@ try {
   });
   assert.equal(bad.status, 400);
   assert.equal((await call('/state')).body.companies.length, 1);
+  const sourceEvidence = {
+    checkedAt: new Date().toISOString(),
+    evidenceUrls: ['https://example.com/'],
+    evidence: 'Official website links to this company Careers.',
+    verificationMethod: 'official_site',
+  };
+  const hiringSources = {
+    checkedAt: sourceEvidence.checkedAt,
+    careers: { ...sourceEvidence, url: 'https://example.com/careers', status: 'confirmed' },
+  };
+  assert.equal(
+    (await call(`/companies/${created.body.job.companyId}`, 'PATCH', { hiringSources })).status,
+    200,
+  );
+  await call(`/companies/${created.body.job.companyId}`, 'PATCH', { industry: 'Fixture industry' });
+  const hiringProfile = (await call(`/company-research/${created.body.job.companyId}`)).body;
+  assert.equal(hiringProfile.company.hiringSources.careers.url, hiringSources.careers.url);
   const exported = (await call('/export')).body;
+  assert.equal(exported.companies[0].hiringSources.careers.url, hiringSources.careers.url);
   assert.equal(exported.jobs.length, 1);
   assert.equal(exported.jobs[0].notes, 'Persist me');
   assert.equal((await call('/import', 'POST', exported)).body.skipped, 1);
   assert.equal((await call('/unknown')).status, 404);
+  const researchDoc = {
+    schema_version: '1.0',
+    generated_at: new Date().toISOString(),
+    research_mode: 'external_research',
+    companies: [
+      {
+        identity: { name: fixture.company, company_id: created.body.job.companyId },
+        observations: [
+          {
+            criterion_id: 'A04',
+            value: null,
+            confidence: 'low',
+            scope: { country: 'ES' },
+            reasoning: 'Unknown fixture',
+            evidence: [],
+          },
+        ],
+        job_urls: [],
+        red_flags: [],
+        notes: 'Fixture',
+      },
+    ],
+  };
+  const researchPreview = await call('/company-research/preview', 'POST', researchDoc);
+  assert.equal(researchPreview.status, 200);
+  assert.equal(
+    (await call('/company-research/import', 'POST', { previewId: researchPreview.body.previewId }))
+      .status,
+    400,
+  );
+  assert.equal(
+    (
+      await call('/company-research/import', 'POST', {
+        previewId: researchPreview.body.previewId,
+        confirmed: true,
+      })
+    ).body.addedFacts,
+    1,
+  );
+  assert.equal(
+    (
+      await call('/company-research/import', 'POST', {
+        previewId: researchPreview.body.previewId,
+        confirmed: true,
+      })
+    ).body.alreadyImported,
+    true,
+  );
+  const companyResearch = (await call('/company-research/' + created.body.job.companyId)).body;
+  assert.equal(companyResearch.observations.length, 1);
+  assert.equal(companyResearch.scores.A.pass, 0);
+  const scoresCalculatedAt = companyResearch.scoresCalculatedAt;
+  assert.ok(scoresCalculatedAt);
+  assert.equal(
+    (await call('/company-research?country=DE')).body.companies[0].scoresCalculatedAt,
+    scoresCalculatedAt,
+  );
+  const recalculated = await call('/company-research/recalculate', 'POST', {
+    companyIds: [created.body.job.companyId],
+  });
+  assert.equal(recalculated.status, 200);
+  assert.equal(recalculated.body.companies[0].companyId, created.body.job.companyId);
+  assert.equal(
+    (await call('/company-research/recalculate', 'POST', { companyIds: [] })).status,
+    400,
+  );
+  assert.equal(
+    (await call('/company-research/recalculate', 'POST', { companyIds: ['missing'] })).status,
+    400,
+  );
+  assert.equal(companyResearch.targetVacancies.contract.version, '1.0');
+  assert.equal(companyResearch.targetVacancies.companyId, created.body.job.companyId);
+  assert.equal(companyResearch.targetVacancies.total, 0); // HTTP fixture is not a target role
+  assert.deepEqual(companyResearch.targetVacancies.jobIds, []);
+  assert.equal((await call('/company-research/criteria')).body.version, registry.version);
+  assert.ok(
+    (await call('/company-research/' + created.body.job.companyId + '/plan')).body.gaps.length,
+  );
+  assert.equal((await call('/company-research/paid')).body.availableActors.length, 0);
+  assert.equal((await call('/company-research/paid/execute', 'POST', {})).status, 400);
+  assert.equal((await call('/state')).body.jobs[0].notes, 'Persist me');
   if (process.argv.includes('--live')) {
     const result = await call('/sync', 'POST', {});
     assert.equal(result.status, 200);

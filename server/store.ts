@@ -1,3 +1,9 @@
+import {
+  backupBeforeResearchMigration,
+  researchSql,
+  retireComparisonFields,
+} from './research-migration.js';
+import { registry } from '../shared/company-research.js';
 import { catalogSchema, radarIdFor } from '@personal-radar/connectors/catalog-sync';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
@@ -64,6 +70,7 @@ export class Store {
   db: DatabaseSync;
   constructor(path: string) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
+    backupBeforeResearchMigration(path);
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS companies (id TEXT PRIMARY KEY, name_key TEXT UNIQUE NOT NULL, data TEXT NOT NULL);
@@ -81,6 +88,10 @@ export class Store {
       CREATE TABLE IF NOT EXISTS job_observations (source_id TEXT NOT NULL, external_id TEXT NOT NULL, job_id TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, missing_count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(source_id,external_id));
       `);
     this.db.exec(catalogSchema());
+    this.db.exec(researchSql);
+    this.db
+      .prepare('INSERT OR IGNORE INTO company_research_registry VALUES (?,?)')
+      .run(registry.version, JSON.stringify(registry));
     const requestColumns = this.db.prepare('PRAGMA table_info(provider_requests)').all();
     for (const [name, definition] of [
       ['scope', "TEXT NOT NULL DEFAULT ''"],
@@ -98,6 +109,7 @@ export class Store {
       this.saveSource({ provider: 'remotive', name: 'Remotive · удалённая работа' });
       this.db.prepare("INSERT INTO settings VALUES ('initialized','1')").run();
     }
+    retireComparisonFields(this.db);
   }
   list<T>(table: 'jobs' | 'companies' | 'profiles' | 'sources'): T[] {
     return this.db
@@ -147,6 +159,10 @@ export class Store {
     const data = companySchema.parse(input);
     const old = id ? this.get<Company>('companies', id) : undefined;
     if (id && !old) throw new Error('Компания не найдена');
+    // Keep stored extensions without persisting derived Catalog identity from decode().
+    const storedOld = old
+      ? JSON.parse(String(this.db.prepare('SELECT data FROM companies WHERE id=?').get(id!)!.data))
+      : {};
     const row = this.db
       .prepare('SELECT id FROM companies WHERE name_key=?')
       .get(nameKey(data.name));
@@ -154,8 +170,28 @@ export class Store {
       if (!id) return this.get<Company>('companies', row.id as string)!;
       throw new Error('Компания с таким названием уже есть');
     }
+    const hiringSources = data.hiringSources ?? old?.hiringSources;
+    const sourceLinks = data.sourceLinks ?? old?.sourceLinks;
+    const linkedin = hiringSources?.linkedin;
+    if (linkedin && linkedin.identityStatus !== 'needs_review') {
+      const conflict = this.list<Company>('companies').find((company) => {
+        const other = company.hiringSources?.linkedin;
+        return (
+          company.id !== id &&
+          other &&
+          other.identityStatus !== 'needs_review' &&
+          (other.profileUrl === linkedin.profileUrl ||
+            (!!linkedin.externalCompanyId &&
+              other.externalCompanyId === linkedin.externalCompanyId))
+        );
+      });
+      if (conflict) throw new Error('Этот LinkedIn-профиль уже связан с другой компанией');
+    }
     const company = {
+      ...storedOld,
       ...data,
+      ...(hiringSources ? { hiringSources } : {}),
+      ...(sourceLinks ? { sourceLinks } : {}),
       id: id || randomUUID(),
       createdAt: old?.createdAt || stamp(),
       updatedAt: stamp(),

@@ -7,6 +7,7 @@ import { searchSchema } from '../shared/source-tools.js';
 import { boardSchema } from '../server/source-tools.js';
 import { discoveryReviewSchema, discoveryHistorySchema } from '../shared/discovery-review.js';
 import { importSchema } from '../server/store.js';
+import { researchImportSchema, observationSchema } from '../shared/company-research.js';
 import { stages } from '../shared/model.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -193,5 +194,161 @@ server.registerTool(
     },
   },
   ({ jobId, ...patch }) => call(`/jobs/${encodeURIComponent(jobId)}`, patch, 'PATCH'),
+);
+const researchContext = {
+  country: z
+    .string()
+    .regex(/^[A-Z]{2}$/)
+    .optional(),
+  profileId: z.string().max(100).optional(),
+};
+const query = (args: { country?: string; profileId?: string }) => {
+  const params = new URLSearchParams();
+  if (args.country) params.set('country', args.country);
+  if (args.profileId) params.set('profileId', args.profileId);
+  return params.size ? `?${params}` : '';
+};
+server.registerTool(
+  'jobs_company_research_criteria',
+  {
+    description:
+      'Read versioned company discovery criteria, types and deterministic scoring rules. No provider calls.',
+    inputSchema: {},
+    annotations: { readOnlyHint: true },
+  },
+  () => call('/company-research/criteria'),
+);
+server.registerTool(
+  'jobs_company_research_list',
+  {
+    description:
+      'Compare existing company IDs, scoped observations, deterministic section scores/coverage and fresh suitable ATS jobs. Unknown is not fail. No provider calls.',
+    inputSchema: researchContext,
+    annotations: { readOnlyHint: true },
+  },
+  (args) => call('/company-research' + query(args)),
+);
+server.registerTool(
+  'jobs_company_research_recalculate',
+  {
+    description:
+      'Recalculate and persist company section scores/coverage from existing reviewed evidence at the end of an authorized discovery or monitoring run. Refreshes evidence age without changing facts, verification, job aiScore or dataDrivenScore. No provider calls. Omit companyIds only for a requested full refresh.',
+    inputSchema: { companyIds: z.array(z.string().min(1)).min(1).max(5000).optional() },
+  },
+  (args) => call('/company-research/recalculate', args),
+);
+server.registerTool(
+  'jobs_company_research_profile',
+  {
+    description:
+      'Read detailed company evidence, proposed vs verified facts, scope, red flags and research history.',
+    inputSchema: { companyId: z.string().min(1), ...researchContext },
+    annotations: { readOnlyHint: true },
+  },
+  ({ companyId, ...args }) =>
+    call(`/company-research/${encodeURIComponent(companyId)}` + query(args)),
+);
+server.registerTool(
+  'jobs_company_research_preview',
+  {
+    description:
+      'Strictly validate research JSON 1.0 and return identity matches, conflicts, skips, new facts and an expiring previewId. No import/provider calls.',
+    inputSchema: { data: researchImportSchema },
+    annotations: { readOnlyHint: true },
+  },
+  (args) => call('/company-research/preview', args.data),
+);
+server.registerTool(
+  'jobs_company_research_import',
+  {
+    description:
+      'Apply a concrete preview atomically only after the user confirms it. Does not verify LLM facts, alter ATS/CRM or run providers. Repeat is idempotent.',
+    inputSchema: { previewId: z.string().uuid(), confirmed: z.literal(true) },
+  },
+  (args) => call('/company-research/import', args),
+);
+server.registerTool(
+  'jobs_company_research_observe',
+  {
+    description:
+      'Append a manual observation for an existing company; old facts remain. Evidence requires a separate review.',
+    inputSchema: { companyId: z.string().min(1), observation: observationSchema },
+  },
+  (args) =>
+    call(`/company-research/${encodeURIComponent(args.companyId)}/observations`, args.observation),
+);
+server.registerTool(
+  'jobs_company_research_review',
+  {
+    description:
+      'Record evidence review after inspecting the linked source content and scope. Reject conflicting observations explicitly; preserve history. Never verify a source solely from an LLM verdict.',
+    inputSchema: {
+      observationId: z.string().min(1),
+      verified: z.boolean(),
+      rejected: z.boolean().default(false),
+      note: z.string().max(4000).default(''),
+    },
+  },
+  ({ observationId, ...decision }) =>
+    call(`/company-research/observations/${encodeURIComponent(observationId)}`, decision, 'PATCH'),
+);
+server.registerTool(
+  'jobs_company_research_priority',
+  {
+    description:
+      'Set user research category independently of CRM status, and preserve personal discovery notes.',
+    inputSchema: {
+      companyId: z.string().min(1),
+      priority: z.enum(['Target', 'Secondary', 'Practice', 'Unassigned']),
+      notes: z.string().max(30000),
+    },
+  },
+  ({ companyId, ...args }) =>
+    call(`/company-research/${encodeURIComponent(companyId)}/preferences`, args, 'PATCH'),
+);
+server.registerTool(
+  'jobs_company_research_plan',
+  {
+    description:
+      'Read coverage/gaps, saved jobMaterials (including closed/stale descriptions with original dates and role scope), prioritised public-source queries, interview follow-ups and paid suggestions. Historical job materials are not current company conditions. Does not call providers. Paid Actors are unavailable until separately connected with a hard budget and explicit one-use consent.',
+    inputSchema: {
+      companyId: z.string().min(1),
+      country: z
+        .string()
+        .regex(/^[A-Z]{2}$/)
+        .optional(),
+    },
+    annotations: { readOnlyHint: true },
+  },
+  ({ companyId, ...args }) =>
+    call(`/company-research/${encodeURIComponent(companyId)}/plan` + query(args)),
+);
+server.registerTool(
+  'jobs_company_research_history',
+  {
+    description:
+      'Read append-only research imports and provenance. Optional existing company ID filter.',
+    inputSchema: { companyId: z.string().max(100).optional() },
+    annotations: { readOnlyHint: true },
+  },
+  (args) =>
+    call(
+      '/company-research/history' +
+        (args.companyId ? '?companyId=' + encodeURIComponent(args.companyId) : ''),
+    ),
+);
+server.registerTool(
+  'jobs_company_research_flag_review',
+  {
+    description:
+      'Record a red-flag source review; a verified employee report still remains a report, not a universal company fact.',
+    inputSchema: {
+      flagId: z.string().min(1),
+      verified: z.boolean(),
+      note: z.string().max(4000).default(''),
+    },
+  },
+  ({ flagId, ...decision }) =>
+    call(`/company-research/flags/${encodeURIComponent(flagId)}`, decision, 'PATCH'),
 );
 await server.connect(new StdioServerTransport());

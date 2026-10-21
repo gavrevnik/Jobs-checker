@@ -16,6 +16,7 @@ import {
   type Job,
 } from '../shared/model';
 import { External, Logo, Salary } from './components';
+import { CompanySourcesPanel } from './CompanySources';
 import { countries, locateJob, periodLabels } from './analytics';
 import {
   companyModes,
@@ -446,6 +447,7 @@ export function CompanyDetails({
       <button className="text-link" onClick={onConnect}>
         Подключить карьерную страницу
       </button>
+      <CompanySourcesPanel companyId={c.id} />
     </div>
   );
 }

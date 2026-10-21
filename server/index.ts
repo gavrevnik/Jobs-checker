@@ -1,3 +1,4 @@
+import { registerResearchApi } from './research-api.js';
 import { registerCatalogApi } from './catalog-sync.js';
 import 'dotenv/config';
 import express from 'express';
@@ -66,6 +67,7 @@ app.post('/api/source-tools/discovery-review', (req, res) =>
   res.json(store.saveDiscoveryReview(req.body)),
 );
 registerCatalogApi(app, store);
+registerResearchApi(app, store);
 app.get('/api/state', (_req, res) => res.json(store.state()));
 app.get('/api/health', (_req, res) =>
   res.json({ ok: true, application: 'jobs-checker', workspace: resolve('.'), syncing: sync.busy }),

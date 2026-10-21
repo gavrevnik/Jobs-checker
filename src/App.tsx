@@ -21,6 +21,8 @@ import {
   ListFilter,
   Loader2,
   MapPin,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   RefreshCw,
   Search,
@@ -74,9 +76,13 @@ const CompaniesPage = lazy(() =>
 const CompanyDetails = lazy(() =>
   import('./CompaniesPage').then((m) => ({ default: m.CompanyDetails })),
 );
+const CompanyComparisonPage = lazy(() =>
+  import('./CompanyComparisonPage').then((m) => ({ default: m.CompanyComparisonPage })),
+);
 type Page =
   | 'jobs'
   | 'companies'
+  | 'comparison'
   | 'pipeline'
   | 'sources'
   | 'profiles'
@@ -95,6 +101,7 @@ type Dialog =
 const nav = [
   { id: 'jobs', label: 'Вакансии', icon: BriefcaseBusiness },
   { id: 'companies', label: 'Компании', icon: Building2 },
+  { id: 'comparison', label: 'Сравнение компаний', icon: ListFilter },
   { id: 'pipeline', label: 'Моя воронка', icon: KanbanSquare },
   { id: 'analytics', label: 'Аналитика', icon: Globe2 },
   { id: 'profiles', label: 'Профили поиска', icon: SlidersHorizontal },
@@ -120,6 +127,10 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [page, setPage] = useState<Page>('jobs');
+  const [comparisonExpanded, setComparisonExpanded] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => readStorage('scout-sidebar-collapsed') === 'true',
+  );
   const [resourceTab, setResourceTab] = useState<ResourceTab>('search');
   const isSources = page === 'resources' && resourceTab === 'sources';
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -174,15 +185,17 @@ export default function App() {
         .filter((j) => {
           const match = matches.get(j.id)!;
           return (
-            (tab === 'all'
-              ? j.stage !== 'archived'
-              : tab === 'favorites'
-                ? j.favorite && j.stage !== 'archived'
-                : tab === 'due'
-                  ? !!j.followUp &&
-                    j.followUp <= new Date().toLocaleDateString('en-CA') &&
-                    !['archived', 'offer'].includes(j.stage)
-                  : j.stage === tab) &&
+            (tab === 'saved_targets'
+              ? true
+              : tab === 'all'
+                ? j.stage !== 'archived'
+                : tab === 'favorites'
+                  ? j.favorite && j.stage !== 'archived'
+                  : tab === 'due'
+                    ? !!j.followUp &&
+                      j.followUp <= new Date().toLocaleDateString('en-CA') &&
+                      !['archived', 'offer'].includes(j.stage)
+                    : j.stage === tab) &&
             (!companyFilter || j.companyId === companyFilter) &&
             (scopedJobIds === null || scopedJobIds.includes(j.id)) &&
             (!search ||
@@ -311,7 +324,9 @@ export default function App() {
   );
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}${page === 'comparison' && comparisonExpanded ? ' comparison-expanded' : ''}`}
+    >
       <aside className="sidebar">
         <a
           className="brand"
@@ -327,7 +342,25 @@ export default function App() {
           </span>
           <span>Jobs checker</span>
         </a>
-        <nav>
+        <button
+          className="sidebar-toggle"
+          aria-label={sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'}
+          title={sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'}
+          aria-expanded={!sidebarCollapsed}
+          aria-controls="main-navigation"
+          onClick={() => {
+            const collapsed = !sidebarCollapsed;
+            setSidebarCollapsed(collapsed);
+            try {
+              localStorage.setItem('scout-sidebar-collapsed', String(collapsed));
+            } catch {
+              // The menu still works when browser storage is unavailable.
+            }
+          }}
+        >
+          {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+        </button>
+        <nav id="main-navigation">
           {nav.map((item) => (
             <button
               key={item.id}
@@ -405,7 +438,7 @@ export default function App() {
                 <Bell size={18} />
                 {due.length > 0 && <i />}
               </button>
-              {page === 'resources' ? (
+              {page === 'comparison' ? null : page === 'resources' ? (
                 <button className="button secondary" onClick={() => navigate('profiles')}>
                   <Target size={16} />
                   Мой профиль
@@ -416,32 +449,34 @@ export default function App() {
                   Импорт
                 </button>
               )}
-              <button
-                className="button primary"
-                onClick={() =>
-                  setDialog({
-                    kind:
-                      page === 'companies'
-                        ? 'company'
-                        : isSources
-                          ? 'source'
-                          : page === 'profiles'
-                            ? 'profile'
-                            : 'job',
-                  })
-                }
-              >
-                <Plus size={17} />
-                {page === 'companies'
-                  ? 'Компания'
-                  : isSources
-                    ? 'Ресурс'
-                    : page === 'profiles'
-                      ? 'Профиль'
-                      : page === 'resources'
-                        ? 'Добавить вакансию'
-                        : 'Вакансия'}
-              </button>
+              {page !== 'comparison' && (
+                <button
+                  className="button primary"
+                  onClick={() =>
+                    setDialog({
+                      kind:
+                        page === 'companies'
+                          ? 'company'
+                          : isSources
+                            ? 'source'
+                            : page === 'profiles'
+                              ? 'profile'
+                              : 'job',
+                    })
+                  }
+                >
+                  <Plus size={17} />
+                  {page === 'companies'
+                    ? 'Компания'
+                    : isSources
+                      ? 'Ресурс'
+                      : page === 'profiles'
+                        ? 'Профиль'
+                        : page === 'resources'
+                          ? 'Добавить вакансию'
+                          : 'Вакансия'}
+                </button>
+              )}
             </div>
           </div>
           {error && (
@@ -513,6 +548,9 @@ export default function App() {
                   <section className="jobs-section">
                     <div className="section-top">
                       <div className="tabs">
+                        {tab === 'saved_targets' && (
+                          <button className="selected">Целевые · вся история</button>
+                        )}
                         {[
                           ['all', 'Все вакансии'],
                           ['favorites', 'Избранное'],
@@ -807,6 +845,30 @@ export default function App() {
                       setCompanyFilter(companyId);
                       setScopedJobIds(ids);
                     }}
+                  />
+                </Suspense>
+              )}
+              {page === 'comparison' && (
+                <Suspense fallback={<div className="loading">Загрузка сравнения…</div>}>
+                  <CompanyComparisonPage
+                    expanded={comparisonExpanded}
+                    onExpandedChange={setComparisonExpanded}
+                    onDetail={(id) => setDialog({ kind: 'companyDetail', id })}
+                    onJob={(id) => setDialog({ kind: 'detail', id })}
+                    onJobs={(companyId, ids) => {
+                      navigate('jobs');
+                      resetFilters();
+                      setCompanyFilter(companyId);
+                      setScopedJobIds(ids);
+                      setShowExcluded(true);
+                      setTab('saved_targets');
+                    }}
+                    profileId={profile?.id || ''}
+                    companyRevision={[
+                      ...state.companies.map((c) => c.id + ':' + c.updatedAt),
+                      ...state.jobs.map((j) => j.id + ':' + j.updatedAt + ':' + j.lastSeenAt),
+                      ...state.sources.map((s) => s.id + ':' + s.lastSync),
+                    ].join('|')}
                   />
                 </Suspense>
               )}
