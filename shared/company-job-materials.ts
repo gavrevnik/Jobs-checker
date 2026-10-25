@@ -1,4 +1,4 @@
-import type { Job } from './model.js';
+import type { Job, Source } from './model.js';
 import { jobAvailability, type JobPresence } from './target-vacancies.js';
 
 /** Saved source text, independent of ATS visibility, target grade and search profile. */
@@ -7,11 +7,12 @@ export function companyJobMaterials(
   jobs: Job[],
   observations: JobPresence[],
   now = Date.now(),
+  sources: Source[] = [],
 ) {
   return jobs
     .filter((job) => job.companyId === companyId && job.description.trim())
     .map((job) => {
-      const availability = jobAvailability(job, observations, now);
+      const availability = jobAvailability(job, observations, now, sources);
       const historical = availability.state !== 'open';
       return {
         origin: 'saved_ats' as const,

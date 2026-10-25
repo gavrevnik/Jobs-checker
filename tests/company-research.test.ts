@@ -483,6 +483,15 @@ describe('Comparison filters and scope', () => {
       location: 'Barcelona',
     }).job;
     store.writeJob({ ...job, lastSeenAt: at() });
+    expect(comparisonModeMatches(research.profile(c.id), 'remote')).toBe(false);
+    store.updateJob(job.id, {
+      availabilityVerification: {
+        state: 'open',
+        source: 'careers',
+        url: 'https://example.test/role',
+        checkedAt: at(),
+      },
+    });
     expect(comparisonModeMatches(research.profile(c.id), 'remote')).toBe(true);
     expect(comparisonModeMatches(research.profile(c.id), 'hybrid')).toBe(false);
     research.manual(c.id, observation('A05', { modes: ['hybrid'], eligible_countries: ['ES'] }));

@@ -5,14 +5,9 @@ import { api } from './api';
 import { shortSentences } from './company-presentation';
 import type { ComparisonProfile } from './company-comparison';
 import type { Company } from '../shared/model';
+import { availabilityLabels } from '../shared/target-vacancies';
 import { CompanyHiringLinks } from './CompanyHiringLinks';
 
-const states = {
-  open: 'Открытая',
-  closed: 'Закрытая',
-  stale: 'Требует перепроверки',
-  unverified: 'Не проверена',
-};
 const checkedDate = (value: string) =>
   value && Number.isFinite(Date.parse(value))
     ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }).format(
@@ -62,9 +57,10 @@ export function TargetVacanciesModal({
           <>
             <div className="target-vacancies-heading">
               <span>Всего найдено {data.total}</span>
-              <strong className="target-open">Открытые {data.open}</strong>
+              <strong className="target-open">Подтверждены {data.open}</strong>
               <strong className="target-closed">Закрытые {data.closed}</strong>
-              {data.needsReview > 0 && <span>Требуют проверки {data.needsReview}</span>}
+              <span>Не подтверждены {data.unverified}</span>
+              <span>Устарели {data.stale}</span>
               <button
                 className="button"
                 disabled={!data.jobIds.length}
@@ -77,9 +73,10 @@ export function TargetVacanciesModal({
               </button>
             </div>
             <p className="target-vacancies-help">
-              Роли по текущему профессиональному профилю и сценарию доступности. Открытые — по
-              сохранённым проверкам за последние 30 дней. Закрытые — архивные или исчезнувшие из
-              источников в двух проверках. Устаревшие и непроверенные записи показаны отдельно.
+              Подтверждены — найдены на официальном Careers или ATS за последние 30 дней. Свежие
+              результаты агрегаторов остаются кандидатами с неподтверждённой открытостью. Устаревшие
+              — без свежих наблюдений. Закрытые — по официальной проверке или двум отсутствиям в
+              полном снимке официальной доски. Архив в ATS — личный этап воронки.
             </p>
             {data.jobs.length ? (
               <ul className="target-vacancy-list">
@@ -110,9 +107,25 @@ export function TargetVacanciesModal({
                       {job.location || '—'} ·{' '}
                       {job.targetLevel === 'review' ? 'Уровень уточнить' : job.targetLevel} ·{' '}
                       <span className={job.availability.state === 'open' ? 'target-open' : ''}>
-                        {states[job.availability.state]}
+                        {availabilityLabels[job.availability.state]}
                       </span>{' '}
-                      · проверено {checkedDate(job.availability.checkedAt)}
+                      · наблюдение {checkedDate(job.availability.checkedAt)}
+                      {job.availability.verifiedAt && (
+                        <> · официальная проверка {checkedDate(job.availability.verifiedAt)}</>
+                      )}
+                      {job.availability.verificationUrl && (
+                        <>
+                          {' '}
+                          ·{' '}
+                          <a
+                            href={job.availability.verificationUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Основание
+                          </a>
+                        </>
+                      )}
                     </small>
                     {job.scenarioFit.status !== 'not_selected' && (
                       <p className="scenario-job-status">

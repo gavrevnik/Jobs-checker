@@ -19,6 +19,7 @@ describe('Comparison hiring filters', () => {
           {
             company: company.name,
             title: 'Senior Data Analyst',
+            source: 'greenhouse',
             seniority: 'senior',
             url: 'https://example.test/open',
             workMode: 'hybrid',
@@ -27,15 +28,23 @@ describe('Comparison hiring filters', () => {
           {
             company: company.name,
             title: 'Senior Product Analyst',
+            source: 'greenhouse',
             seniority: 'senior',
             url: 'https://example.test/closed',
             workMode: 'onsite',
             stage: 'archived',
+            availabilityVerification: {
+              state: 'closed',
+              source: 'ats',
+              url: 'https://example.test/closed',
+              checkedAt: stamp,
+            },
             lastSeenAt: stamp,
           },
           {
             company: company.name,
             title: 'Senior Product Analyst',
+            source: 'greenhouse',
             seniority: 'senior',
             url: 'https://example.test/stale',
             workMode: 'onsite',
@@ -44,6 +53,7 @@ describe('Comparison hiring filters', () => {
           {
             company: company.name,
             title: 'Senior Software Engineer',
+            source: 'greenhouse',
             seniority: 'senior',
             url: 'https://example.test/other',
             workMode: 'onsite',
@@ -96,7 +106,14 @@ describe('Comparison hiring filters', () => {
         benefits: [],
       });
       for (const job of store.list<{ id: string }>('jobs'))
-        store.updateJob(job.id, { stage: 'archived' });
+        store.updateJob(job.id, {
+          availabilityVerification: {
+            state: 'closed',
+            source: 'ats',
+            url: 'https://example.test/closed',
+            checkedAt: stamp,
+          },
+        });
       expect(comparisonHiringTags(research.profile(company.id)).modes).toEqual([]);
     } finally {
       store.db.close();
@@ -115,6 +132,7 @@ describe('Comparison hiring filters', () => {
             {
               company,
               title: 'Senior Product Analyst',
+              source: 'greenhouse',
               seniority: 'senior',
               location,
               lastSeenAt: recent,
@@ -126,7 +144,15 @@ describe('Comparison hiring filters', () => {
       add('First', 'Barcelona', { url: 'https://example.test/two' });
       add('Second', 'Barcelona');
       add('Second', 'Berlin');
-      add('First', 'Paris', { stage: 'archived' });
+      add('First', 'Paris', {
+        stage: 'archived',
+        availabilityVerification: {
+          state: 'closed',
+          source: 'ats',
+          url: 'https://example.test/closed',
+          checkedAt: recent,
+        },
+      });
       add('First', 'Madrid', { lastSeenAt: '2020-01-01T00:00:00Z' });
       add('First', 'Lisbon', { title: 'Senior Software Engineer' });
       const research = new CompanyResearch(store);

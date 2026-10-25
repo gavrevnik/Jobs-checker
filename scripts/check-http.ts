@@ -235,7 +235,7 @@ try {
     (await call('/company-research/recalculate', 'POST', { companyIds: ['missing'] })).status,
     400,
   );
-  assert.equal(companyResearch.targetVacancies.contract.version, '1.0');
+  assert.equal(companyResearch.targetVacancies.contract.version, '1.1');
   assert.equal(companyResearch.targetVacancies.companyId, created.body.job.companyId);
   assert.equal(companyResearch.targetVacancies.total, 0); // HTTP fixture is not a target role
   assert.deepEqual(companyResearch.targetVacancies.jobIds, []);

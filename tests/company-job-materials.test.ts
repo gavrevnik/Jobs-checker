@@ -26,6 +26,7 @@ function fixture(path = ':memory:') {
     const job: Job = {
       ...jobSchema.parse({
         company: company.name,
+        source: 'greenhouse',
         title: 'Senior Data Analyst',
         description: 'The team operates dbt models for product experiments.',
         url: `https://example.test/jobs/${id}`,
@@ -50,7 +51,18 @@ function fixture(path = ':memory:') {
 it('makes closed, stale, undated and non-target descriptions available in the country-scoped plan without changing ATS', () => {
   const f = fixture();
   f.add('open');
-  f.add('archived', { stage: 'archived', notes: 'Private CRM note', aiReason: 'Personal AI' });
+  f.add('archived', {
+    stage: 'archived',
+    lastSeenAt: '2025-05-12T00:00:00Z',
+    availabilityVerification: {
+      state: 'closed',
+      source: 'ats',
+      url: 'https://example.test/closed',
+      checkedAt: recent(),
+    },
+    notes: 'Private CRM note',
+    aiReason: 'Personal AI',
+  });
   f.add('stale', { lastSeenAt: '2025-05-12T00:00:00Z', publishedAt: '2025-05-01' });
   f.add('undated', { lastSeenAt: '' });
   f.add('missing');
@@ -103,7 +115,7 @@ it('uses fresh presence from another source without merging different saved desc
     [a, b],
     [
       { sourceId: 'gone', jobId: a.id, lastSeenAt: recent(), missingCount: 2 },
-      { sourceId: 'live', jobId: a.id, lastSeenAt: recent(), missingCount: 0 },
+      { sourceId: 'discovery:lever', jobId: a.id, lastSeenAt: recent(), missingCount: 0 },
     ],
   );
   expect(materials).toHaveLength(2);
@@ -116,7 +128,16 @@ it('uses fresh presence from another source without merging different saved desc
 
 it('retains reviewed historical insights in full information but excludes them from current score and tags even with recent dates', () => {
   const f = fixture();
-  f.add('closed', { stage: 'archived' });
+  f.add('closed', {
+    stage: 'archived',
+    lastSeenAt: '2025-05-12T00:00:00Z',
+    availabilityVerification: {
+      state: 'closed',
+      source: 'ats',
+      url: 'https://example.test/closed',
+      checkedAt: recent(),
+    },
+  });
   const material = f.research.plan(f.company.id).jobMaterials[0];
   for (const [criterion_id, value] of [
     ['AN01', true],
@@ -180,7 +201,16 @@ it('exports historical materials with local-only CLI and leaves the SQLite file 
   dirs.push(dir);
   const db = resolve(dir, 'fixture.sqlite');
   const f = fixture(db);
-  f.add('closed', { stage: 'archived', lastSeenAt: '2025-05-12T00:00:00Z' });
+  f.add('closed', {
+    stage: 'archived',
+    lastSeenAt: '2025-05-12T00:00:00Z',
+    availabilityVerification: {
+      state: 'closed',
+      source: 'ats',
+      url: 'https://example.test/closed',
+      checkedAt: '2025-05-12T00:00:00Z',
+    },
+  });
   f.store.db.close();
   stores.splice(stores.indexOf(f.store), 1);
   const before = readFileSync(db);

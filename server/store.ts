@@ -180,6 +180,7 @@ export class Store {
     }
     const hiringSources = data.hiringSources ?? old?.hiringSources;
     const sourceLinks = data.sourceLinks ?? old?.sourceLinks;
+    const publicCases = data.publicCases ?? old?.publicCases;
     const linkedin = hiringSources?.linkedin;
     if (linkedin && linkedin.identityStatus !== 'needs_review') {
       const conflict = this.list<Company>('companies').find((company) => {
@@ -200,6 +201,7 @@ export class Store {
       ...data,
       ...(hiringSources ? { hiringSources } : {}),
       ...(sourceLinks ? { sourceLinks } : {}),
+      ...(publicCases ? { publicCases } : {}),
       id: id || randomUUID(),
       createdAt: old?.createdAt || stamp(),
       updatedAt: stamp(),

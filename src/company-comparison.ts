@@ -9,26 +9,44 @@ import {
 export type ComparisonProfile = ReturnType<CompanyResearch['profile']>;
 
 type HiringProfile = Pick<ComparisonProfile, 'company' | 'targetVacancies'>;
-export function comparisonHiringOffices(profiles: HiringProfile[]) {
+export function comparisonHiringOffices(profiles: HiringProfile[], includeUnverified = true) {
   const offices = new Map<
     string,
-    { id: string; name: string; country: string; companies: Set<string> }
+    { id: string; name: string; country: string; companies: Set<string>; candidates: Set<string> }
   >();
   for (const profile of profiles) {
     for (const office of profile.targetVacancies.offices) {
-      if (!office.open) continue;
-      const entry = offices.get(office.id) || { ...office, companies: new Set<string>() };
-      entry.companies.add(profile.company.id);
+      if (!office.open && !(includeUnverified && office.unverified)) continue;
+      const entry = offices.get(office.id) || {
+        ...office,
+        companies: new Set<string>(),
+        candidates: new Set<string>(),
+      };
+      if (office.open) entry.companies.add(profile.company.id);
+      if (includeUnverified && office.unverified) entry.candidates.add(profile.company.id);
       offices.set(office.id, entry);
     }
   }
   return [...offices.values()]
-    .map(({ companies, ...office }) => ({ ...office, count: companies.size }))
+    .map(({ companies, candidates, ...office }) => ({
+      ...office,
+      count: companies.size,
+      unverifiedCount: candidates.size,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name, 'ru') || a.country.localeCompare(b.country));
 }
 
-export function comparisonHiringOfficeMatches(profile: HiringProfile, officeId: string) {
-  return !officeId || profile.targetVacancies.offices.some((o) => o.id === officeId && o.open);
+export function comparisonHiringOfficeMatches(
+  profile: HiringProfile,
+  officeId: string,
+  includeUnverified = true,
+) {
+  return (
+    !officeId ||
+    profile.targetVacancies.offices.some(
+      (o) => o.id === officeId && (o.open || (includeUnverified && o.unverified)),
+    )
+  );
 }
 
 export function comparisonHiringTags(

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { companySourceLinkSchema } from './company-links.js';
 import { companyHiringSchema } from './company-hiring.js';
+import { companyPublicCaseSchema } from './company-public-cases.js';
 
 export const stages = ['new', 'saved', 'applied', 'interview', 'offer', 'archived'] as const;
 export const stageLabels: Record<string, string> = {
@@ -69,6 +70,7 @@ export const companySchema = z.object({
   website: link.default(''),
   hiringSources: companyHiringSchema.optional(),
   sourceLinks: z.array(companySourceLinkSchema).max(300).optional(),
+  publicCases: z.array(companyPublicCaseSchema).max(500).optional(),
   industry: text.default(''),
   location: text.default(''),
   size: text.default(''),
@@ -155,6 +157,15 @@ export const jobSchema = z
       .default('manual'),
     externalId: text.default(''),
     publishedAt: timestamp.default(''),
+    // An explicit check of this position, independent of its discovery source/CRM stage.
+    availabilityVerification: z
+      .object({
+        state: z.enum(['open', 'closed']),
+        source: z.enum(['careers', 'ats']),
+        url: z.url().refine((v) => /^https?:\/\//i.test(v)),
+        checkedAt: z.iso.datetime(),
+      })
+      .optional(),
     demo: z.boolean().default(false),
   })
   .refine(

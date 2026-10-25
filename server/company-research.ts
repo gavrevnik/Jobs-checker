@@ -14,6 +14,7 @@ import {
 } from '../shared/company-culture-fit.js';
 import type { Company, Job, Profile, Source } from '../shared/model.js';
 import { companyTargetVacancies } from './company-target-vacancies.js';
+import { jobAvailability } from '../shared/target-vacancies.js';
 import { companyJobMaterials } from '../shared/company-job-materials.js';
 import {
   calculateScoreSnapshot,
@@ -672,23 +673,33 @@ export class CompanyResearch {
     });
     const profile = context.profile;
     const monitor = context.monitorByCompany.get(companyId) || [];
-    const presenceByJob = new Map<string, typeof monitor>();
-    for (const presence of monitor) {
-      const id = String(presence.jobId);
-      const values = presenceByJob.get(id) || [];
-      values.push(presence);
-      presenceByJob.set(id, values);
-    }
+    const jobPresence = monitor.map((o) => ({
+      sourceId: String(o.sourceId),
+      jobId: String(o.jobId),
+      lastSeenAt: String(o.lastSeenAt),
+      missingCount: Number(o.missingCount),
+    }));
     const history = context.historyByCompany.get(companyId) || [];
-    const jobs = (context.jobsByCompany.get(companyId) || []).map((j) => {
-      const obs = presenceByJob.get(j.id) || [];
-      const checkedAt =
-        obs
-          .map((o) => String(o.lastSeenAt))
-          .sort()
-          .at(-1) || j.lastSeenAt;
-      const missing = obs.some((o) => Number(o.missingCount) >= 2);
-      const fresh = !!checkedAt && Date.parse(checkedAt) >= Date.now() - 30 * 86400000;
+    const savedJobs = context.jobsByCompany.get(companyId) || [];
+    const targetVacancies = companyTargetVacancies(
+      companyId,
+      savedJobs,
+      context.sources,
+      jobPresence,
+      Date.now(),
+      profile,
+      context.selection.scenarios.find((s) => s.id === profile.selection?.scenarioId),
+      observations,
+    );
+    const targetAvailability = new Map(
+      targetVacancies.jobs.flatMap((j) => j.atsJobIds.map((id) => [id, j.availability] as const)),
+    );
+    const jobs = savedJobs.map((j) => {
+      const individual = jobAvailability(j, jobPresence, Date.now(), context.sources);
+      const grouped = targetAvailability.get(j.id);
+      // A newer closure/reopening applies to the same position across URL copies.
+      // Confirmed city evidence still comes only from the individual official copy.
+      const availability = grouped && grouped.state !== 'open' ? grouped : individual;
       const suitable = profile?.keywords.length
         ? acceptsJob(j, searchSchema.parse({}), profile)
         : /(?:product|data|business|продукт|данных).*analyst|analyst.*(?:product|data|business)|аналитик/i.test(
@@ -698,16 +709,19 @@ export class CompanyResearch {
           (!profile || acceptsJob(j, searchSchema.parse({}), profile));
       return {
         ...j,
-        checkedAt,
-        current: fresh && !missing && j.stage !== 'archived',
-        freshness: missing ? 'missing' : fresh ? 'recently_checked' : 'unverified_or_stale',
+        availability,
+        checkedAt: availability.checkedAt,
+        current: availability.state === 'open',
+        freshness:
+          availability.state === 'closed'
+            ? 'missing'
+            : availability.state === 'open'
+              ? 'recently_checked'
+              : 'unverified_or_stale',
         suitable,
         countries: [...new Set(locateJob(j.location).map((p) => p.code))],
       };
     });
-    const currentJobs = jobs.filter(
-      (j) => j.current && j.suitable && (!country || j.countries.includes(country)),
-    );
     const confirmed = summary.criteria
       .filter((c) => !c.conflicting)
       .flatMap((c) => c.known)
@@ -730,20 +744,8 @@ export class CompanyResearch {
       [...observations.map((o) => o.verifiedAt || o.importedAt), ...history.map((r) => r.at)]
         .sort()
         .at(-1) || '';
-    const targetVacancies = companyTargetVacancies(
-      companyId,
-      jobs,
-      context.sources,
-      monitor.map((o) => ({
-        sourceId: String(o.sourceId),
-        jobId: String(o.jobId),
-        lastSeenAt: String(o.lastSeenAt),
-        missingCount: Number(o.missingCount),
-      })),
-      Date.now(),
-      profile,
-      context.selection.scenarios.find((s) => s.id === profile.selection?.scenarioId),
-      observations,
+    const currentJobs = jobs.filter(
+      (j) => j.current && j.suitable && (!country || j.countries.includes(country)),
     );
     const columnSources = companyColumnSources(
       company,
@@ -827,6 +829,8 @@ export class CompanyResearch {
         lastSeenAt: String(o.lastSeenAt),
         missingCount: Number(o.missingCount),
       })),
+      Date.now(),
+      this.store.list<Source>('sources'),
     );
     const gaps = p.criteria
       .filter(

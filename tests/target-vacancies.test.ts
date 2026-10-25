@@ -19,6 +19,7 @@ const now = Date.parse('2026-10-16T12:00:00Z');
 const recent = '2026-10-14T12:00:00Z';
 const job = (id: string, input: Record<string, unknown> = {}): Job => ({
   ...jobSchema.parse({
+    source: 'greenhouse',
     company: 'Fixture',
     title: 'Senior Product Analyst',
     location: 'Barcelona',
@@ -75,7 +76,9 @@ describe('Target vacancies contract', () => {
       await tools.search({ ...args, store: true });
       const targets = new CompanyResearch(store).profile(saved.companyId).targetVacancies;
       expect(targets.total).toBe(1);
-      expect(targets.open).toBe(1);
+      expect(targets.open).toBe(0);
+      expect(targets.unverified).toBe(1);
+      expect(new CompanyResearch(store).profile(saved.companyId).currentJobs).toEqual([]);
       expect(targets.jobIds).toEqual([saved.id]);
       expect(targets.sources.some((s) => s.label === 'Adzuna' && !!s.updatedAt)).toBe(true);
       expect(mock).toHaveBeenCalledTimes(1); // second read uses the provider cache
@@ -146,7 +149,9 @@ describe('Target vacancies contract', () => {
       const saved = store.list<Job>('jobs')[0];
       const targets = new CompanyResearch(store).profile(saved.companyId).targetVacancies;
       expect(targets.total).toBe(1);
-      expect(targets.open).toBe(1);
+      const official = ['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(provider);
+      expect(targets.open).toBe(official ? 1 : 0);
+      expect(targets.unverified).toBe(official ? 0 : 1);
       expect(targets.jobIds).toEqual(ids);
       expect(targets.sources.some((s) => s.id === `provider:${provider}`)).toBe(true);
     } finally {
@@ -181,17 +186,34 @@ describe('Target vacancies contract', () => {
     }
     expect(targetLevel(job('junior', { title: 'Data Analyst', seniority: 'junior' }))).toBeNull();
   });
-  it('keeps stale/unknown/archived distinct from open and uses fresh evidence from any observing source', () => {
+  it('keeps stale/unknown distinct and requires official evidence for opening or closing', () => {
     expect(jobAvailability(job('a', { lastSeenAt: '' }), [], now).state).toBe('unverified');
     expect(jobAvailability(job('a', { lastSeenAt: '2025-01-01' }), [], now).state).toBe('stale');
-    expect(jobAvailability(job('a', { stage: 'archived' }), [], now).state).toBe('closed');
+    expect(jobAvailability(job('a', { stage: 'archived' }), [], now).state).toBe('open');
     expect(jobAvailability(job('a', { lastSeenAt: '2099-01-01' }), [], now).state).toBe(
       'unverified',
     );
-    const gone = { sourceId: 'old', jobId: 'a', lastSeenAt: recent, missingCount: 2 };
+    const gone = {
+      sourceId: 'discovery:greenhouse',
+      jobId: 'a',
+      lastSeenAt: recent,
+      missingCount: 2,
+    };
     expect(jobAvailability(job('a'), [gone], now).state).toBe('closed');
     expect(
-      jobAvailability(job('a'), [gone, { ...gone, sourceId: 'new', missingCount: 0 }], now).state,
+      jobAvailability(
+        job('a'),
+        [
+          gone,
+          {
+            ...gone,
+            sourceId: 'discovery:lever',
+            missingCount: 0,
+            lastSeenAt: '2026-10-15T12:00:00Z',
+          },
+        ],
+        now,
+      ).state,
     ).toBe('open');
   });
   it('counts all saved dates and deduplicates URLs without marking historical cities green', () => {
@@ -207,6 +229,12 @@ describe('Target vacancies contract', () => {
       location: 'Berlin',
       lastSeenAt: '2024-01-01',
       stage: 'archived',
+      availabilityVerification: {
+        state: 'closed',
+        source: 'ats',
+        url: 'https://example.test/closed',
+        checkedAt: recent,
+      },
     });
     const result = companyTargetVacancies(
       'co',
@@ -237,7 +265,15 @@ describe('Target vacancies contract', () => {
       'co',
       [
         job('open', { location: 'Dublin' }),
-        job('closed', { location: 'Berlin', stage: 'archived' }),
+        job('closed', {
+          location: 'Berlin',
+          availabilityVerification: {
+            state: 'closed',
+            source: 'careers',
+            url: 'https://example.test/closed',
+            checkedAt: recent,
+          },
+        }),
         job('old', { location: 'Paris', lastSeenAt: '2024-01-01' }),
         job('unknown', { location: 'Madrid', lastSeenAt: '' }),
       ],

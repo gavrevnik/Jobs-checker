@@ -16,10 +16,12 @@ import { TargetVacanciesModal } from './TargetVacanciesModal';
 import { CompanyHiringLinks } from './CompanyHiringLinks';
 import { CompanyColumnModal } from './CompanyColumnModal';
 import { companyCulture } from './company-culture';
-import { companyResearchTags, uncoveredTechnicalFacts } from '../shared/company-signals';
+import { uncoveredTechnicalFacts } from '../shared/company-signals';
+import { companyInfrastructure } from './company-infrastructure';
 import { companyInformationRows } from './company-information-table';
 import { CompanyUsefulLinksModal } from './CompanyUsefulLinksModal';
 import { CompanyInterviewModal } from './CompanyInterviewModal';
+import { CompanyPublicCases } from './CompanyPublicCases';
 import { companyInterviewDetails } from '../shared/company-interviews';
 import { companyScreening } from './company-screening';
 import type { ResearchTag } from '../shared/company-signals';
@@ -230,13 +232,16 @@ export function CompanyComparisonPage({
       descending,
     ],
   );
-  const offices = useMemo(() => comparisonHiringOffices(filteredProfiles), [filteredProfiles]);
+  const offices = useMemo(
+    () => comparisonHiringOffices(filteredProfiles, !hasJobs),
+    [filteredProfiles, hasJobs],
+  );
   const selectedOffice = data
     .flatMap((p) => p.targetVacancies.offices)
     .find((o) => o.id === office);
   const rows = useMemo(
-    () => filteredProfiles.filter((p) => comparisonHiringOfficeMatches(p, office)),
-    [filteredProfiles, office],
+    () => filteredProfiles.filter((p) => comparisonHiringOfficeMatches(p, office, !hasJobs)),
+    [filteredProfiles, office, hasJobs],
   );
   const visibleSections = new Set<string>();
   useEffect(() => {
@@ -338,7 +343,7 @@ export function CompanyComparisonPage({
             />
           </label>
           <label>
-            Актуальные офисы найма
+            Города вакансий
             <select value={office} onChange={(e) => setOffice(e.target.value)}>
               <option value="">Все города</option>
               {office && !offices.some((o) => o.id === office) && (
@@ -346,7 +351,7 @@ export function CompanyComparisonPage({
               )}
               {offices.map((o) => (
                 <option key={o.id} value={o.id}>
-                  {o.name} · {o.count}
+                  {o.name} · {o.count} подтв. · {o.unverifiedCount} проверить
                 </option>
               ))}
             </select>
@@ -383,7 +388,7 @@ export function CompanyComparisonPage({
               checked={hasJobs}
               onChange={(e) => setHasJobs(e.target.checked)}
             />
-            Есть активные вакансии
+            Есть подтверждённые вакансии
           </label>
           <button
             className="button comparison-more-button"
@@ -599,7 +604,8 @@ export function CompanyComparisonPage({
                 const presentation = companyPresentation(p.company, p.observations);
                 const culture = companyCulture(p.observations);
                 const hiringTags = comparisonHiringTags(p);
-                const infrastructure = companyResearchTags(p.observations).infrastructure;
+                const infrastructureData = companyInfrastructure(p.observations);
+                const infrastructure = infrastructureData.tags;
                 const screening = companyScreening(p);
                 const updatedAt = [p.lastResearchAt, p.jobsCheckedAt]
                   .filter((date) => date && Number.isFinite(Date.parse(date)))
@@ -739,7 +745,9 @@ export function CompanyComparisonPage({
                         aria-label={`Целевые вакансии: ${p.company.name}`}
                         onClick={() => setTargetCompany({ id: p.company.id, name: p.company.name })}
                       >
-                        <strong className="target-open">Открытые {p.targetVacancies.open}</strong>
+                        <strong className="target-open">
+                          Подтверждены {p.targetVacancies.open}
+                        </strong>
                         <span className="comparison-offices-line">
                           <span className="comparison-offices-label">Офисы найма: </span>
                           {p.targetVacancies.openOffices.map((city) => city.name).join(', ') || '—'}
@@ -752,9 +760,20 @@ export function CompanyComparisonPage({
                           {p.targetVacancies.closedOffices.map((city) => city.name).join(', ') ||
                             '—'}
                         </span>
-                        {p.targetVacancies.needsReview > 0 && (
+                        <span className="target-needs-review">
+                          Не подтверждены {p.targetVacancies.unverified}
+                        </span>
+                        {p.targetVacancies.unverified > 0 && (
+                          <span className="comparison-offices-line">
+                            Города кандидатов:{' '}
+                            {p.targetVacancies.unverifiedOffices
+                              .map((city) => city.name)
+                              .join(', ') || '—'}
+                          </span>
+                        )}
+                        {p.targetVacancies.stale > 0 && (
                           <span className="target-needs-review">
-                            Требуют проверки {p.targetVacancies.needsReview}
+                            Устарели {p.targetVacancies.stale}
                           </span>
                         )}
                       </button>
@@ -885,52 +904,53 @@ export function CompanyComparisonPage({
                           </span>
                         </button>
                       )}
-                      <div className="comparison-infrastructure-section">
-                        <button
-                          className="comparison-heading-button"
-                          onClick={() => setInfrastructureGuide(p)}
-                          aria-label={`Инфраструктура: источники и заполнение · ${p.company.name}`}
-                        >
-                          Инфраструктура
-                        </button>
-                        <button
-                          className="comparison-column-button"
-                          aria-label={`Инфраструктура: ${p.company.name}`}
-                          onClick={() =>
-                            setColumnDetail({
-                              id: p.company.id,
-                              name: p.company.name,
-                              column: 'infrastructure',
-                            })
-                          }
-                        >
-                          {infrastructure.length ? (
-                            <span className="culture-tags">
-                              {infrastructure.slice(0, 4).map((tag) => (
-                                <span
-                                  className={tag.assessment ? 'research-assessment' : ''}
-                                  key={tag.label}
-                                  title={tag.details}
-                                >
-                                  {tag.label}
-                                </span>
-                              ))}
-                              {infrastructure.length > 4 && (
-                                <span
-                                  title={infrastructure
-                                    .slice(4)
-                                    .map((t) => t.label)
-                                    .join(' · ')}
-                                >
-                                  +{infrastructure.length - 4}
-                                </span>
-                              )}
-                            </span>
-                          ) : (
-                            '—'
+                      {(infrastructure.length > 0 || infrastructureData.summaries.length > 0) && (
+                        <div className="comparison-infrastructure-section">
+                          <button
+                            className="comparison-heading-button"
+                            onClick={() => setInfrastructureGuide(p)}
+                            aria-label={`Инфраструктура: источники и заполнение · ${p.company.name}`}
+                          >
+                            Инфраструктура
+                          </button>
+                          {infrastructure.length > 0 && (
+                            <button
+                              className="comparison-column-button"
+                              aria-label={`Инфраструктура: ${p.company.name}`}
+                              onClick={() =>
+                                setColumnDetail({
+                                  id: p.company.id,
+                                  name: p.company.name,
+                                  column: 'infrastructure',
+                                })
+                              }
+                            >
+                              <span className="culture-tags">
+                                {infrastructure.slice(0, 4).map((tag) => (
+                                  <span
+                                    className={tag.assessment ? 'research-assessment' : ''}
+                                    key={tag.label}
+                                    title={tag.details}
+                                  >
+                                    {tag.label}
+                                  </span>
+                                ))}
+                                {infrastructure.length > 4 && (
+                                  <span
+                                    title={infrastructure
+                                      .slice(4)
+                                      .map((t) => t.label)
+                                      .join(' · ')}
+                                  >
+                                    +{infrastructure.length - 4}
+                                  </span>
+                                )}
+                              </span>
+                            </button>
                           )}
-                        </button>
-                      </div>
+                        </div>
+                      )}
+                      <CompanyPublicCases company={p.company} />
                     </td>
                     {Object.entries(p.scores)
                       .filter(([id]) => visibleSections.has(id))

@@ -3,12 +3,15 @@ import { locateJob } from '../src/analytics.js';
 import type { Scenario } from './selection-profile.js';
 import { canonicalUrl } from './model.js';
 import { stale, type StoredObservation } from './company-research.js';
+import { analyticalDataScientist } from './data-science-role.js';
 
-export function professionalRole(job: Pick<JobInput, 'title' | 'seniority'>, profile: Profile) {
+export function professionalRole(
+  job: Pick<JobInput, 'title' | 'seniority'> & Partial<Pick<JobInput, 'description'>>,
+  profile: Profile,
+) {
   const t = job.title;
   const families = profile.selection?.roleFamilies || [];
-  const matches =
-    !families.length ||
+  const titleMatches =
     (families.includes('product_analytics') &&
       /product.*analy|продуктов.*аналит|аналит.*продукт/iu.test(t)) ||
     (families.includes('data_analytics') && /data\s+analyst|аналитик\s+данных/iu.test(t)) ||
@@ -20,6 +23,11 @@ export function professionalRole(job: Pick<JobInput, 'title' | 'seniority'>, pro
       /(?:analytics|аналитик).*(?:lead|head|manager|руковод)|(?:lead|head|manager|руковод).*analyt/iu.test(
         t,
       ));
+  const matches =
+    !families.length ||
+    (/\bdata\s+scientist\b/i.test(t)
+      ? (titleMatches || families.includes('decision_science')) && analyticalDataScientist(job)
+      : titleMatches);
   if (!matches) return 'excluded' as const;
   let level = job.seniority;
   if (/\b(intern|junior|jr)\b|стаж[её]р|младший/iu.test(t)) level = 'junior';

@@ -69,6 +69,7 @@ describe('Comparison loading and stored scoring', () => {
         {
           company: company.name,
           title: 'Senior Data Analyst',
+          source: 'greenhouse',
           seniority: 'senior',
           location: 'Barcelona',
           lastSeenAt: new Date().toISOString(),

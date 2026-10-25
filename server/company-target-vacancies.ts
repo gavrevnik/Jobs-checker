@@ -57,13 +57,31 @@ export function companyTargetVacancies(
   const jobs = [...grouped.values()]
     .map((copies) => {
       const ranked = copies
-        .map((j) => ({ j, availability: jobAvailability(j, observations, now) }))
+        .map((j) => ({ j, availability: jobAvailability(j, observations, now, allSources) }))
         .sort(
           (a, b) =>
-            Number(b.availability.state === 'open') - Number(a.availability.state === 'open') ||
-            b.availability.checkedAt.localeCompare(a.availability.checkedAt),
+            (Date.parse(b.availability.verifiedAt) || 0) -
+              (Date.parse(a.availability.verifiedAt) || 0) ||
+            Number(b.availability.state === 'closed') - Number(a.availability.state === 'closed') ||
+            (Date.parse(b.availability.checkedAt) || 0) -
+              (Date.parse(a.availability.checkedAt) || 0),
         );
-      const { j, availability } = ranked[0];
+      const { j } = ranked[0];
+      const checkedAt =
+        ranked
+          .map((r) => r.availability.checkedAt)
+          .filter(Boolean)
+          .sort((a, b) => Date.parse(a) - Date.parse(b))
+          .at(-1) || '';
+      const official = ranked[0].availability;
+      const state =
+        official.state === 'open' || official.state === 'closed'
+          ? official.state
+          : !checkedAt ||
+              Date.parse(checkedAt) >= now - targetVacancyContract.openWithinDays * 86400000
+            ? ('unverified' as const)
+            : ('stale' as const);
+      const availability = { ...official, state, checkedAt };
       return {
         ...j,
         atsJobIds: copies.map((c) => c.id),
@@ -71,7 +89,20 @@ export function companyTargetVacancies(
         availability,
         scenarioFit: scenarioFit(j, scenario, research),
         openCityIds: copies
-          .filter((c) => jobAvailability(c, observations, now).state === 'open')
+          .filter(
+            (c) =>
+              availability.state === 'open' &&
+              jobAvailability(c, observations, now, allSources).state === 'open',
+          )
+          .flatMap((c) => locateJob(c.location))
+          .filter((p) => p.kind === 'city')
+          .map((p) => p.id),
+        unverifiedCityIds: copies
+          .filter(
+            (c) =>
+              availability.state === 'unverified' &&
+              jobAvailability(c, observations, now, allSources).state === 'unverified',
+          )
           .flatMap((c) => locateJob(c.location))
           .filter((p) => p.kind === 'city')
           .map((p) => p.id),
@@ -90,13 +121,17 @@ export function companyTargetVacancies(
         Number(b.availability.state === 'open') - Number(a.availability.state === 'open') ||
         a.title.localeCompare(b.title),
     );
-  const offices = new Map<string, { id: string; name: string; country: string; open: boolean }>();
+  const offices = new Map<
+    string,
+    { id: string; name: string; country: string; open: boolean; unverified: boolean }
+  >();
   const closedOffices = new Map<string, { id: string; name: string; country: string }>();
   for (const job of jobs)
     for (const city of job.cities) {
       offices.set(city.id, {
         ...city,
         open: !!offices.get(city.id)?.open || job.openCityIds.includes(city.id),
+        unverified: !!offices.get(city.id)?.unverified || job.unverifiedCityIds.includes(city.id),
       });
       if (job.availability.state === 'closed') closedOffices.set(city.id, city);
     }
@@ -146,7 +181,7 @@ export function companyTargetVacancies(
         `provider:${job.source}`,
         providerLabels[job.source] || job.source,
         '',
-        jobAvailability(job, observations, now).checkedAt,
+        jobAvailability(job, observations, now, allSources).checkedAt,
       );
     }
   }
@@ -154,7 +189,7 @@ export function companyTargetVacancies(
     contract: profile?.selection?.roleFamilies.length
       ? {
           ...targetVacancyContract,
-          version: '2.0',
+          version: '2.2',
           roleFamilies: profile.selection.roleFamilies,
           profileVersion: profile.selection.version,
           scenarioId: profile.selection.scenarioId,
@@ -164,6 +199,8 @@ export function companyTargetVacancies(
     total: jobs.length,
     open: jobs.filter((j) => j.availability.state === 'open').length,
     closed: jobs.filter((j) => j.availability.state === 'closed').length,
+    unverified: jobs.filter((j) => j.availability.state === 'unverified').length,
+    stale: jobs.filter((j) => j.availability.state === 'stale').length,
     needsReview: jobs.filter((j) => ['stale', 'unverified'].includes(j.availability.state)).length,
     jobIds: jobs.map((j) => j.id),
     jobs,
@@ -172,6 +209,9 @@ export function companyTargetVacancies(
     ),
     openOffices: [...offices.values()]
       .filter((o) => o.open)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    unverifiedOffices: [...offices.values()]
+      .filter((o) => o.unverified)
       .sort((a, b) => a.name.localeCompare(b.name)),
     closedOffices: [...closedOffices.values()].sort((a, b) => a.name.localeCompare(b.name)),
     sources: [...sources.values()],

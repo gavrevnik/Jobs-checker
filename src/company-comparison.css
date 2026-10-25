@@ -145,10 +145,35 @@
 .comparison-tags {
   margin-top: 12px;
 }
-.comparison-infrastructure-section {
+.comparison-infrastructure-section,
+.comparison-public-cases-section {
   margin-top: 14px;
   padding-top: 10px;
   border-top: 1px solid #eef0f3;
+}
+.comparison-public-cases-section > .comparison-heading-button {
+  color: #476b8a;
+  font-weight: 600;
+}
+.company-public-cases h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.public-case-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 12px 0;
+  color: #67758a;
+  font-size: 12px;
+}
+.public-case-source {
+  margin: 10px 0 0;
+  overflow-wrap: anywhere;
+}
+.public-case-source > span {
+  color: #67758a;
 }
 .comparison-infrastructure-section > .comparison-heading-button {
   margin-bottom: 8px;
