@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Store } from '../server/store';
 import { CompanyResearch } from '../server/company-research';
 import { coreSchema, dimensionIds, scenarioSchema } from '../shared/selection-profile';
@@ -73,6 +74,58 @@ function fact(
   };
 }
 describe('Professional core and scenarios', () => {
+  it('reads the bound Radar profile, preserves history and rejects stale writes or missing data', () => {
+    const s = setup();
+    const old = configure(s);
+    const root = mkdtempSync(join(tmpdir(), 'jobs-radar-selection-'));
+    const records = join(root, 'knowledge/indexes/records/preference');
+    const path = join(records, 'job-search-preferences.json');
+    const write = (core: typeof old.core, activeScenarioId = '') =>
+      writeFileSync(
+        path,
+        JSON.stringify({
+          id: 'job-search-preferences',
+          domain: 'job-search',
+          metadata: { selection: { core, scenarios: old.scenarios, activeScenarioId } },
+        }),
+      );
+    try {
+      mkdirSync(records, { recursive: true });
+      write(old.core);
+      s.db.prepare('INSERT INTO settings VALUES (?,?)').run(
+        'selection-preferences-source',
+        JSON.stringify({
+          kind: 'personal-radar',
+          root: relative(fileURLToPath(new URL('../', import.meta.url)), root),
+        }),
+      );
+      expect(s.selection.read()).toEqual(old);
+      write(old.core, 'es');
+      const scenarioUpdate = s.selection.read();
+      expect(scenarioUpdate.version).toBe(old.version + 1);
+      expect(scenarioUpdate.coreVersion).toBe(old.coreVersion);
+      expect(s.selection.profile().locations).toEqual(['Spain']);
+      const changedCore = { ...old.core, notes: 'Updated in Radar' };
+      write(changedCore, 'es');
+      expect(s.selection.profile().notes).toBe(changedCore.notes);
+      expect(s.selection.read().coreVersion).toBe(old.coreVersion + 1);
+      expect(s.selection.history()).toHaveLength(4);
+      expect(s.selection.history()[2]).toEqual(old);
+      expect(() =>
+        s.selection.save({
+          expectedVersion: old.version,
+          core: old.core,
+          scenarios: old.scenarios,
+          activeScenarioId: '',
+        }),
+      ).toThrow('уже изменён');
+      rmSync(path);
+      expect(() => s.selection.read()).toThrow('Personal Radar');
+      expect(s.selection.history()).toHaveLength(4);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   it('backs up an existing database and preserves original profiles, source IDs, jobs and research history', () => {
     const dir = mkdtempSync(join(tmpdir(), 'selection-migration-')),
       path = join(dir, 'old.sqlite');

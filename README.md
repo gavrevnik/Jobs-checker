@@ -16,11 +16,28 @@ API/PATCH/import вакансии поддерживает необязател�
 
 ## Общие библиотеки и владение данными
 
+В привязанной рабочей базе профиль поиска работы хранится в
+[Personal Radar](../personal-radar/knowledge/preferences/job-search-preferences.yaml).
+Настройка SQLite `selection-preferences-source` содержит
+`{"kind":"personal-radar","root":"../personal-radar"}`. Путь вычисляется от репозитория
+Jobs Checker. Новые и непривязанные базы используют свой локальный профиль.
+
+Интерфейс, API и MCP читают сгенерированную запись Personal Radar. Сохранение из
+Jobs Checker обновляет YAML и индексы через штатный локальный writer Radar
+(`.venv/bin/python` в его репозитории). После ручной правки YAML перестройте индексы
+Radar и перечитайте профиль перед сохранением. Повтор того же сохранения может
+завершить прерванную запись. При недоступной записи приложение показывает ошибку.
+
+SQLite сохраняет снимки версий, связи со старыми профилями, вакансии, CRM и оценки
+компаний. При чтении изменившегося профиля добавляется снимок. Изменения только
+сценария сохраняют версию профессионального ядра. Сценарий, на который может
+ссылаться история, можно выключить, сохранив его ID.
+
 Повторно используемые provider-клиенты находятся в соседнем `personal-radar/connectors/`; нужен checkout Personal Radar в стандартном Life Stack layout. [Установка и структура пакетов](../personal-radar/connectors/README.md), [inventory переносов](../personal-radar/docs/connector-inventory.md), [Knowledge/SQLite и future migration](../personal-radar/docs/storage-boundaries.md).
 
 npm использует `file:../personal-radar/connectors/connectors-ts` и именованные импорты `@personal-radar/connectors/...`. Обычные install/dev/start/build/check/test и MCP-команды автоматически собирают библиотеку; при первом setup устанавливаются её lockfile-зависимости. Ручные symlink не нужны.
 
-SQLite-файлы, текущие карточки/профили/оценки и API/MCP/UI контракты сохранены. Долгосрочные отобранные sources/owners/items/preferences принадлежат Personal Radar Knowledge; существующие локальные данные пока не мигрируют. Discovery сохраняет source-кандидатов с identity/provenance/relevance и явным review; подтверждённые источники предназначены для будущего отдельного переноса в Knowledge. Ручной versioned catalog sync и outbox для явно определённых канонических полей описаны в [Catalog Sync](../personal-radar/docs/catalog-sync.md); новые кандидаты требуют утверждённого manifest.
+Долгосрочные отобранные sources/owners/items/preferences принадлежат Personal Radar Knowledge. Discovery сохраняет source-кандидатов с identity/provenance/relevance и явным review. Подтверждённые источники можно отдельно перенести в Knowledge. Ручной versioned catalog sync и outbox для явно определённых канонических полей описаны в [Catalog Sync](../personal-radar/docs/catalog-sync.md).
 
 ## Источники → MCP → ATS
 
