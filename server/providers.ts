@@ -1,5 +1,6 @@
 import { jobSchema, type JobInput, type Source, type Profile } from '../shared/model.js';
 import type { Store } from './store.js';
+import { SearchReviews } from './search-reviews.js';
 import { acceptsJob, searchSchema, boardProviders } from '../shared/source-tools.js';
 import { meteredFetcher, providerEnabled, safeProviderError } from './provider-io.js';
 
@@ -23,7 +24,7 @@ function validateJob(row: { title: string; source?: string; jobLevel?: unknown }
   // A provider's explicit level can fill an unknown title; never override a
   // Junior/Lead title or infer Mid merely from an unqualified analyst title.
   const level =
-    row.source === 'jobicy' && titleLevel === 'unknown'
+    ['jobicy', 'himalayas'].includes(row.source || '') && titleLevel === 'unknown'
       ? seniority(String(row.jobLevel || ''))
       : titleLevel;
   return jobSchema.parse({ ...row, seniority: level });
@@ -46,7 +47,8 @@ export class SyncService {
     private store: Store,
     private fetcher: Fetcher = fetch,
   ) {}
-  async run(sourceId?: string) {
+  async run(sourceId?: string, reviewRequired = true) {
+    const reviews = new SearchReviews(this.store);
     if (this.busy) throw new Error('Обновление уже выполняется');
     this.busy = true;
     const results: {
@@ -56,6 +58,8 @@ export class SyncService {
       total: number;
       cached?: boolean;
       error?: string;
+      reviewBatchIds?: string[];
+      pendingReview?: number;
     }[] = [];
     try {
       const sources = this.store
@@ -98,20 +102,21 @@ export class SyncService {
             source,
             meteredFetcher(this.store, source.provider, budget, this.fetcher),
           );
-          const profile = this.store.selection.profile(
-            source.scenarioId || source.profileId || 'all',
-          );
+          const scenarioId = source.scenarioId || source.profileId || 'all';
+          const profile = this.store.selection.profile(scenarioId);
           const selected = profile
             ? jobs.filter((job) => acceptsJob(job, searchSchema.parse({}), profile))
             : jobs;
-          let added = 0;
-          this.store.transaction(() => {
-            added = this.store.ingestJobs(
+          const result = this.store.transaction(() => {
+            const result = reviews.refreshSource(
+              source,
               selected,
-              source.id,
               boardProviders.includes(source.provider) && !budget.cacheHits ? jobs : undefined,
               budget.observedAt,
-            ).added;
+              reviewRequired,
+              scenarioId,
+              profile,
+            );
             this.store.recordRun({
               provider: source.provider,
               sourceId: source.id,
@@ -121,7 +126,7 @@ export class SyncService {
               query: source.query,
               received: jobs.length,
               matched: selected.length,
-              added,
+              added: result.added,
               requests: budget.used,
               cached: budget.cacheHits > 0,
               error: '',
@@ -132,8 +137,9 @@ export class SyncService {
               error: '',
               count: jobs.length,
             });
+            return result;
           });
-          results.push({ id: source.id, name: source.name, added, total: jobs.length });
+          results.push({ id: source.id, name: source.name, total: jobs.length, ...result });
         } catch (error) {
           const safeMessage = safeProviderError(error);
           this.store.recordRun({

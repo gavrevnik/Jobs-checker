@@ -374,13 +374,23 @@ describe('Research import, identity and histories', () => {
       board = tools.addBoard({ provider: 'ashby', name: 'Fixture Co', board: 'fixture' });
     expect((await tools.monitor({ sourceIds: [board.id] })).execute).toBe(false);
     expect(network).not.toHaveBeenCalled();
-    await tools.monitor({ sourceIds: [board.id], execute: true, maxRequests: 1 });
+    await tools.monitor({
+      sourceIds: [board.id],
+      execute: true,
+      maxRequests: 1,
+      reviewRequired: false,
+    });
     expect(network).toHaveBeenCalledTimes(1);
     const p = research.profile(board.companyId);
     expect(p.currentJobs).toHaveLength(1);
     expect(p.currentJobs[0].countries).toEqual(['ES']);
     expect(p.scores.A.pass).toBe(0);
-    await tools.monitor({ sourceIds: [board.id], execute: true, maxRequests: 1 });
+    await tools.monitor({
+      sourceIds: [board.id],
+      execute: true,
+      maxRequests: 1,
+      reviewRequired: false,
+    });
     expect(network).toHaveBeenCalledTimes(1);
   });
 });

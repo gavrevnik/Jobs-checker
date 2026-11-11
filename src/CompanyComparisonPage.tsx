@@ -771,6 +771,9 @@ export function CompanyComparisonPage({
                               .join(', ') || '—'}
                           </span>
                         )}
+                        {p.targetVacancies.practice > 0 && (
+                          <span>Для тренировки {p.targetVacancies.practice}</span>
+                        )}
                         {p.targetVacancies.stale > 0 && (
                           <span className="target-needs-review">
                             Устарели {p.targetVacancies.stale}

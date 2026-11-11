@@ -248,6 +248,7 @@ Design and deploy ML systems to production. MLOps and feature stores are a plus.
         providers: ['greenhouse'],
         execute: true,
         store: true,
+        reviewRequired: false,
         maxRequests: 1,
       });
       expect(run.results[0].matched).toBe(6);

@@ -1,7 +1,12 @@
+import { randomUUID } from 'node:crypto';
+import { jobLocationMatch } from '../shared/job-fit.js';
+import { arbeitnowMarkets } from '@personal-radar/connectors/arbeitnow';
+import { checkPosting } from '@personal-radar/connectors/himalayas';
 import { fetchPosting } from '@personal-radar/connectors/smartrecruiters';
 import { z } from 'zod';
 import { adzunaSearchParams, hasAdzunaQuery } from '../shared/adzuna.js';
 import {
+  canonicalUrl,
   sourceSchema,
   type Source,
   type Profile,
@@ -11,6 +16,9 @@ import {
 } from '../shared/model.js';
 import {
   acceptsJob,
+  adzunaMarkets,
+  defaultDiscoveryQueries,
+  hasReviewableTitle,
   boardProviders,
   providerCatalog,
   providerIds,
@@ -23,6 +31,7 @@ import {
 import { fetchJobs, normalize } from './providers.js';
 import { meteredFetcher, providerEnabled, quota, safeProviderError } from './provider-io.js';
 import type { Store } from './store.js';
+import { SearchReviews, type ReviewCandidate } from './search-reviews.js';
 
 export const boardSchema = z.object({
   provider: z.enum(['greenhouse', 'lever', 'ashby', 'smartrecruiters']),
@@ -37,10 +46,13 @@ export const boardSchema = z.object({
 });
 export class SourceTools {
   busy = false;
+  readonly reviews: SearchReviews;
   constructor(
     private store: Store,
     private fetcher: typeof fetch = fetch,
-  ) {}
+  ) {
+    this.reviews = new SearchReviews(store);
+  }
   status() {
     const sources = this.store.list<Source>('sources');
     const runs = this.store.runs();
@@ -119,68 +131,144 @@ export class SourceTools {
     const args = searchSchema.parse(input);
     const profile = this.profile(args.scenarioId ?? args.profileId);
     const filters = resolveFilters(args, profile);
+    if (args.providers.includes('adzuna') && args.adzuna)
+      adzunaSearchParams('', args.location, args.adzuna, args.maxAgeDays);
     const all = this.store.list<Source>('sources');
     for (const id of args.sourceIds)
       if (!all.some((s) => s.id === id)) throw new Error('Источник не найден');
-    const targets: Source[] = [];
+    const markets = [...new Set(args.countries.length ? args.countries : [args.country])];
+    if (
+      args.country &&
+      args.countries.length &&
+      (markets.length !== 1 || markets[0] !== args.country)
+    )
+      throw new Error('Укажите либо country, либо countries');
+    const providerTargets: Source[][] = [];
+    const skipped: { provider: ProviderId; country: string; reason: string }[] = [];
     for (const provider of new Set(args.providers)) {
-      if (boardProviders.includes(provider))
-        targets.push(
-          ...all.filter(
+      if (boardProviders.includes(provider)) {
+        providerTargets.push(
+          all.filter(
             (s) =>
               s.provider === provider &&
               s.enabled &&
               (!args.sourceIds.length || args.sourceIds.includes(s.id)),
           ),
         );
-      else {
-        // Separate provider queries keep keyword synonyms portable across APIs.
-        const queries =
-          ['arbeitnow', 'remotive', 'jobicy'].includes(provider) ||
-          (provider === 'adzuna' && hasAdzunaQuery(args.adzuna))
-            ? ['']
-            : [
-                ...new Set(
-                  filters.keywords.flatMap((k) =>
-                    k
-                      .split('|')
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  ),
+        continue;
+      }
+      const marketTargets: Source[] = [];
+      const feed = ['arbeitnow', 'remotive', 'jobicy'].includes(provider);
+      const nativeAdzuna = provider === 'adzuna' && hasAdzunaQuery(args.adzuna);
+      const keywords =
+        args.keywords ??
+        (args.reviewRequired ? defaultDiscoveryQueries(profile) : filters.keywords);
+      const queries =
+        feed || nativeAdzuna
+          ? ['']
+          : [
+              ...new Set(
+                keywords.flatMap((keyword) =>
+                  keyword
+                    .split('|')
+                    .map((term) => term.trim())
+                    .filter(Boolean),
                 ),
-              ];
-        for (const query of queries.length ? queries : [''])
-          targets.push({
-            ...sourceSchema.parse({
-              provider,
-              name: provider === 'arbeitnow' && args.country === 'gb' ? 'Arbeitnow UK' : provider,
-              query,
-              country: args.country,
-              location: args.location,
-            }),
-            id: `discovery:${provider}${provider === 'arbeitnow' && args.country === 'gb' ? ':gb' : ''}`,
+              ),
+            ];
+      for (const [index, requested] of markets.entries()) {
+        const country =
+          requested || (provider === 'jobtech' ? 'se' : provider === 'arbeitnow' ? 'de' : '');
+        const reason =
+          provider === 'adzuna' && !adzunaMarkets.some((market) => market === country)
+            ? 'Adzuna: укажите поддерживаемый рынок'
+            : provider === 'arbeitnow' && !Object.hasOwn(arbeitnowMarkets, country)
+              ? 'Arbeitnow: доступны DE, GB и FR'
+              : provider === 'jobtech' && country !== 'se'
+                ? 'JobTech: доступна только Швеция'
+                : provider === 'jooble' &&
+                    markets.length > 1 &&
+                    country !== process.env.JOOBLE_COUNTRY?.toLowerCase()
+                  ? 'Jooble: нет ключа для этого рынка'
+                  : ['remotive', 'jobicy'].includes(provider) && index > 0
+                    ? 'Одна общая лента на запуск'
+                    : '';
+        if (reason) {
+          skipped.push({ provider, country, reason });
+          continue;
+        }
+        const scope = ['adzuna', 'arbeitnow', 'jobtech', 'himalayas', 'jooble', 'serpapi'].includes(
+          provider,
+        )
+          ? country
+          : '';
+        for (const [queryIndex, query] of (queries.length ? queries : ['']).entries()) {
+          const source = sourceSchema.parse({
+            provider,
+            name: provider === 'arbeitnow' && country === 'gb' ? 'Arbeitnow UK' : provider,
+            query,
+            country,
+            location: args.location,
+          });
+          // Visit each market before using a second synonym.
+          marketTargets[queryIndex * markets.length + index] = {
+            ...source,
+            id: `discovery:${provider}${scope && !(provider === 'arbeitnow' && scope === 'de') ? ':' + scope : ''}`,
             lastSync: '',
             lastAttempt: '',
             error: '',
             count: 0,
-          });
+          };
+        }
       }
+      providerTargets.push(marketTargets.filter(Boolean));
     }
+    const targets: Source[] = [];
+    for (let i = 0; i < Math.max(0, ...providerTargets.map((list) => list.length)); i++)
+      for (const list of providerTargets) if (list[i]) targets.push(list[i]);
     const statuses = this.status().providers;
+    const blockedProviders = new Set(
+      statuses.filter((p) => !p.enabled || p.missing.length).map((p) => p.id),
+    );
+    const represented = new Set<string>();
+    let executableTargets = 0;
+    let omittedTargets = 0;
+    const boundedTargets = targets.filter(({ provider }) => {
+      if (blockedProviders.has(provider)) {
+        if (represented.has(provider)) return false;
+        represented.add(provider);
+        return true;
+      }
+      if (executableTargets < args.maxRequests) {
+        executableTargets++;
+        return true;
+      }
+      omittedTargets++;
+      return false;
+    });
+    const plannedPages = boundedTargets.reduce((total, { provider }) => {
+      if (blockedProviders.has(provider)) return total;
+      if (provider === 'lever' || provider === 'smartrecruiters') return total + args.maxRequests;
+      return total + args.maxPages;
+    }, 0);
     const plan = {
       context: profile?.selection,
       execute: args.execute,
       store: args.store,
+      reviewRequired: args.reviewRequired,
+      skipped,
+      omittedTargets,
+      plannedRequestUpperBound: Math.min(args.maxRequests, plannedPages),
       maxRequests: args.maxRequests,
       maxPages: args.maxPages,
       filters,
-      targets: targets.map((s) => ({
+      targets: boundedTargets.map((s) => ({
         sourceId: s.id,
         provider: s.provider,
         name: s.name,
         board: s.board,
         query: s.query,
-        ...(s.provider === 'arbeitnow' ? { country: s.country || 'de' } : {}),
+        country: s.country,
         ...(s.provider === 'adzuna'
           ? {
               country: s.country,
@@ -197,19 +285,22 @@ export class SourceTools {
           : {}),
       })),
       unavailable: args.providers
-        .filter((p) => !targets.some((s) => s.provider === p))
+        .filter((p) => boardProviders.includes(p) && !targets.some((s) => s.provider === p))
         .map((p) => ({ provider: p, reason: 'Добавьте и включите доску компании' })),
       providers: statuses.filter((p) => args.providers.includes(p.id)),
       web: webSearchPlan(args, profile),
     };
-    if (!args.execute) return { ...plan, jobs: [], results: [], requests: 0 };
+    if (!args.execute) return { ...plan, jobs: [], results: [], requests: 0, reviewBatchId: null };
     if (this.busy) throw new Error('Поиск уже выполняется');
     this.busy = true;
     const budget = { used: 0, limit: args.maxRequests, cacheHits: 0, observedAt: '' };
-    const jobs: (JobInput & { atsId?: string })[] = [];
+    const jobs: (JobInput & { atsId?: string; candidateId?: string })[] = [];
+    const candidates = new Map<string, ReviewCandidate>();
+    const stage = args.store && args.reviewRequired;
     const results: {
       provider: string;
       sourceId: string;
+      country: string;
       received: number;
       matched: number;
       added: number;
@@ -218,7 +309,7 @@ export class SourceTools {
     }[] = [];
     const seen = new Set<string>();
     try {
-      for (const source of targets) {
+      for (const source of boundedTargets) {
         const before = budget.used,
           cachedBefore = budget.cacheHits;
         budget.observedAt = '';
@@ -231,8 +322,6 @@ export class SourceTools {
           if (!status.enabled) throw new Error('Адаптер выключен');
           if (status.missing.length)
             throw new Error(`Нужно настроить: ${status.missing.join(', ')}`);
-          if (source.provider === 'adzuna' && !args.country)
-            throw new Error('Укажите country для Adzuna');
           const raw = await fetchJobs(
             source,
             meteredFetcher(this.store, source.provider, budget, this.fetcher),
@@ -244,24 +333,66 @@ export class SourceTools {
             },
           );
           received = raw.length;
+          const isBoard = boardProviders.includes(source.provider);
+          const requested = (
+            ['remotive', 'jobicy'].includes(source.provider) ? markets : [source.country]
+          )
+            .filter(Boolean)
+            .map((market) => market.toUpperCase());
           const selected = raw
+            .filter(
+              (j) =>
+                isBoard ||
+                (hasReviewableTitle(j.title) &&
+                  (!args.reviewRequired || jobLocationMatch(j, requested) !== 'mismatch')),
+            )
             .filter((j) => !args.externalIds.length || args.externalIds.includes(j.externalId))
-            .filter((j) => acceptsJob(j, args, profile))
+            .filter((j) => acceptsJob(j, args, profile, args.reviewRequired && !isBoard))
             .filter((j) => {
               const key = `${source.id}:${j.externalId || j.url}`;
               if (seen.has(key)) return false;
               seen.add(key);
               return true;
-            })
-            .slice(0, Math.max(0, args.maxItems - jobs.length));
+            });
           matched = selected.length;
-          if (args.store) {
+          const room = Math.max(0, args.maxItems - jobs.length);
+          if (stage) {
+            for (const job of selected) {
+              const key = job.url ? canonicalUrl(job.url) : `${source.id}:${job.externalId}`;
+              if (!key || (!job.url && !job.externalId)) continue;
+              const origin = {
+                sourceId: source.id,
+                externalId: job.externalId,
+                observedAt: budget.observedAt,
+              };
+              const existing = candidates.get(key);
+              if (existing) {
+                existing.origins.push(origin);
+              } else if (jobs.length < args.maxItems) {
+                const candidateId = randomUUID();
+                candidates.set(key, {
+                  id: candidateId,
+                  job,
+                  origins: [origin],
+                  requestedMarkets: requested,
+                });
+                jobs.push({ ...job, candidateId });
+              }
+            }
+          } else if (args.store) {
             const saved = this.store.transaction(() =>
-              this.store.ingestJobs(selected, source.id, undefined, budget.observedAt),
+              this.store.ingestJobs(
+                selected.slice(0, room),
+                source.id,
+                undefined,
+                budget.observedAt,
+              ),
             );
             added = saved.added;
-            jobs.push(...selected.map((j, index) => ({ ...j, atsId: saved.ids[index] })));
-          } else jobs.push(...selected);
+            jobs.push(
+              ...selected.slice(0, room).map((j, index) => ({ ...j, atsId: saved.ids[index] })),
+            );
+          } else jobs.push(...selected.slice(0, room));
         } catch (e) {
           error = safeProviderError(e);
         }
@@ -269,6 +400,7 @@ export class SourceTools {
         const result = {
           provider: source.provider,
           sourceId: source.id,
+          country: source.country,
           received,
           matched,
           added,
@@ -281,13 +413,16 @@ export class SourceTools {
           companyId: source.companyId || undefined,
           sourceName: source.name,
           selection: profile?.selection,
-          kind: args.store ? 'search+store' : 'search',
+          kind: args.store && !stage ? 'search+store' : 'search',
           query: source.query || filters.keywords.join(', '),
           requests: budget.used - before,
         });
         if (jobs.length >= args.maxItems) break;
       }
-      return { ...plan, jobs, results, requests: budget.used };
+      const reviewBatchId = candidates.size
+        ? this.reviews.stage(args.scenarioId ?? args.profileId, profile, [...candidates.values()])
+        : null;
+      return { ...plan, jobs, results, requests: budget.used, reviewBatchId };
     } finally {
       this.busy = false;
     }
@@ -299,6 +434,7 @@ export class SourceTools {
         scenarioId: z.string().max(100).optional(),
         execute: z.boolean().default(false),
         maxRequests: z.number().int().min(1).max(100).default(30),
+        reviewRequired: z.boolean().default(true),
       })
       .parse(input);
     const sources = this.store
@@ -324,6 +460,7 @@ export class SourceTools {
       return {
         execute: false,
         due,
+        reviewRequired: args.reviewRequired,
         maxRequests: args.maxRequests,
         contexts: due.map((s) => ({
           sourceId: s.id,
@@ -345,11 +482,12 @@ export class SourceTools {
           added = 0,
           error = '';
         let selection: Profile['selection'];
+        let reviewBatchIds: string[] = [];
+        let pendingReview = 0;
         this.store.put('sources', { ...source, lastAttempt: new Date().toISOString() });
         try {
-          const profile = this.profile(
-            args.scenarioId ?? (source.scenarioId || source.profileId || 'all'),
-          );
+          const scenarioId = args.scenarioId ?? (source.scenarioId || source.profileId || 'all');
+          const profile = this.profile(scenarioId);
           selection = profile?.selection;
           const raw = await fetchJobs(
             source,
@@ -360,12 +498,15 @@ export class SourceTools {
           matched = selected.length;
           this.store.transaction(() => {
             // A cached response is not new evidence of presence or absence.
-            added = this.store.ingestJobs(
+            ({ added, reviewBatchIds, pendingReview } = this.reviews.refreshSource(
+              source,
               selected,
-              source.id,
               budget.cacheHits === cachedBefore ? raw : undefined,
               budget.observedAt,
-            ).added;
+              args.reviewRequired,
+              scenarioId,
+              profile,
+            ));
             this.store.put('sources', {
               ...source,
               lastAttempt: new Date().toISOString(),
@@ -378,8 +519,8 @@ export class SourceTools {
           error = safeProviderError(e);
           this.store.put('sources', { ...source, lastAttempt: new Date().toISOString(), error });
         }
-        results.push(
-          this.store.recordRun({
+        results.push({
+          ...this.store.recordRun({
             provider: source.provider,
             sourceId: source.id,
             companyId: source.companyId || undefined,
@@ -394,7 +535,9 @@ export class SourceTools {
             cached: budget.cacheHits > cachedBefore,
             error,
           }),
-        );
+          reviewBatchIds,
+          pendingReview,
+        });
       }
       return { execute: true, results, requests: budget.used };
     } finally {
@@ -407,6 +550,23 @@ export class SourceTools {
       .parse(input);
     const job = this.store.get<Job>('jobs', args.jobId);
     if (!job) throw new Error('Вакансия не найдена');
+    if (job.source === 'himalayas') {
+      if (!args.execute) return { execute: false, jobId: job.id, maxRequests: 1 };
+      const budget = { used: 0, limit: 1, cacheHits: 0, observedAt: '' };
+      const state = await checkPosting(
+        job.externalId,
+        meteredFetcher(this.store, 'himalayas', budget, this.fetcher),
+      );
+      if (state === 'closed')
+        this.store.updateJob(job.id, { sourceClosedAt: new Date().toISOString() });
+      else if (
+        state === 'open' &&
+        job.sourceClosedAt &&
+        Date.parse(budget.observedAt) >= Date.parse(job.sourceClosedAt)
+      )
+        this.store.updateJob(job.id, { sourceClosedAt: '' });
+      return { jobId: job.id, state, source: 'himalayas', requests: budget.used };
+    }
     const source = this.store.get<Source>('sources', job.sourceId);
     if (!source || source.provider !== 'smartrecruiters')
       throw new Error(

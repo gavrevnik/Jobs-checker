@@ -19,6 +19,8 @@ import type { Profile, Source, State } from '../shared/model';
 import {
   boardProviders,
   providerCatalog,
+  defaultDiscoveryQueries,
+  marketPresets,
   searchSchema,
   webSearchPlan,
   type ProviderId,
@@ -85,6 +87,7 @@ export function SourcesPage({
   const [limit, setLimit] = useState(10);
   const [pages, setPages] = useState(1);
   const [store, setStore] = useState(true);
+  const [reviewRequired, setReviewRequired] = useState(true);
   const [result, setResult] = useState<any>(null);
   const [adding, setAdding] = useState(false);
   const [boardProvider, setBoardProvider] = useState('ashby');
@@ -119,7 +122,7 @@ export function SourcesPage({
     };
   }, []);
   useEffect(() => {
-    setKeywords(profile?.keywords.join(', ') || '');
+    setKeywords(defaultDiscoveryQueries(profile).join(', '));
     setResult(null);
   }, [profile?.id]);
   const act = async (id: string, fn: () => Promise<unknown>) => {
@@ -150,7 +153,10 @@ export function SourcesPage({
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
-    country,
+    countries: country
+      .split(',')
+      .map((market) => market.trim())
+      .filter(Boolean),
     location,
     maxRequests: limit,
     maxPages: pages,
@@ -199,6 +205,7 @@ export function SourcesPage({
                   providers: availableSelected,
                   execute: true,
                   store,
+                  reviewRequired,
                 }),
               ),
             );
@@ -230,17 +237,53 @@ export function SourcesPage({
               />
             </label>
             <label className="market-field">
-              <span>Рынок API</span>
+              <span>Рынки API</span>
               <input
-                placeholder="de"
-                aria-label="Рынок API"
-                maxLength={2}
-                pattern="[A-Za-z]{2}|^$"
+                placeholder="FR, DE, SE"
+                aria-label="Рынки API"
+                maxLength={60}
+                pattern="[A-Za-z]{2}( *, *[A-Za-z]{2})*|^$"
                 value={country}
-                onChange={(e) => setCountry(e.target.value.toLowerCase().replace(/[^a-z]/g, ''))}
+                onChange={(e) => setCountry(e.target.value.toUpperCase().replace(/[^A-Z, ]/g, ''))}
               />
-              {selected.includes('arbeitnow') && <small>Arbeitnow: de или gb; пусто = de</small>}
+              <small>Коды стран через запятую</small>
+              {tab === 'connections' && (
+                <select
+                  aria-label="Пресет рынков"
+                  value=""
+                  onChange={(e) => {
+                    const preset = marketPresets[e.target.value as keyof typeof marketPresets];
+                    if (preset) setCountry(preset.map((market) => market.toUpperCase()).join(', '));
+                  }}
+                >
+                  <option value="">Пресеты рынков</option>
+                  <option value="europe">Европа</option>
+                  <option value="nordic">Nordic с Финляндией</option>
+                </select>
+              )}
             </label>
+            {tab === 'connections' && (
+              <button
+                type="button"
+                className="button secondary"
+                disabled={!!busy || !availableSelected.length}
+                onClick={() =>
+                  void act('plan', async () =>
+                    setResult(
+                      await api('/source-tools/search', 'POST', {
+                        ...query(),
+                        providers: availableSelected,
+                        execute: false,
+                        store,
+                        reviewRequired,
+                      }),
+                    ),
+                  )
+                }
+              >
+                План поиска
+              </button>
+            )}
             {tab === 'connections' && (
               <button
                 type="submit"
@@ -260,7 +303,15 @@ export function SourcesPage({
                   checked={store}
                   onChange={(e) => setStore(e.target.checked)}
                 />
-                Сохранять в ATS
+                {reviewRequired ? 'Подготовить к сохранению после проверки' : 'Сохранять в ATS'}
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={reviewRequired}
+                  onChange={(e) => setReviewRequired(e.target.checked)}
+                />
+                Проверять через агента перед сохранением
               </label>
               <label>
                 Лимит запросов{' '}
@@ -307,16 +358,59 @@ export function SourcesPage({
       {result && (
         <section className="source-results" aria-live="polite">
           <div className="source-group-title">
-            <h2>{result.jobs ? `Найдено: ${result.jobs.length}` : 'Результат проверки'}</h2>
+            <h2>
+              {result.execute === false
+                ? 'План поиска'
+                : result.jobs
+                  ? `Найдено: ${result.jobs.length}`
+                  : 'Результат проверки'}
+            </h2>
             <span>Запросов: {result.requests || 0}</span>
           </div>
+          {result.execute === false && result.targets?.length > 0 && (
+            <details open>
+              <summary>До {result.plannedRequestUpperBound} сетевых запросов</summary>
+              <ul>
+                {result.targets.map(
+                  (target: { sourceId: string; name: string; country: string; query: string }) => (
+                    <li key={`${target.sourceId}:${target.query}`}>
+                      {target.name} · {target.country.toUpperCase() || 'общая выдача'}
+                      {target.query && ` · ${target.query}`}
+                    </li>
+                  ),
+                )}
+              </ul>
+            </details>
+          )}
+          {result.reviewBatchId && (
+            <p>
+              Попросите агента проверить этот пакет перед сохранением. Код пакета:{' '}
+              <code>{result.reviewBatchId}</code>
+            </p>
+          )}
+          {result.omittedTargets > 0 && (
+            <p>За пределами бюджета: {result.omittedTargets} поисковых запросов.</p>
+          )}
+          {result.skipped?.map((item: { provider: string; country: string; reason: string }) => (
+            <p key={`${item.provider}:${item.country}`}>
+              {item.provider} · {item.country.toUpperCase() || '—'}: {item.reason}
+            </p>
+          ))}
           {(result.results || []).map((r: any, i: number) => (
             <div key={i} className={r.error ? 'source-run-error' : 'source-result-line'}>
-              <b>{providerCatalog.find((p) => p.id === r.provider)?.name || r.name}</b>
+              <b>
+                {providerCatalog.find((p) => p.id === r.provider)?.name || r.name}
+                {r.country ? ` · ${r.country.toUpperCase()}` : ''}
+              </b>
               <span>
                 {r.error ||
-                  `Получено ${r.received} · подходит ${r.matched} · новых ${r.added}${r.cached ? ' · кэш' : ''}`}
+                  `Получено ${r.received} · предварительный отбор ${r.matched} · новых ${r.added}${r.cached ? ' · кэш' : ''}`}
               </span>
+              {r.reviewBatchIds?.map((id: string) => (
+                <p key={id}>
+                  Пакет для проверки агентом: <code>{id}</code>
+                </p>
+              ))}
             </div>
           ))}
           {result.unavailable?.map((r: any) => (
@@ -338,7 +432,11 @@ export function SourcesPage({
                   {j.company} · {j.location || 'Локация не указана'}
                 </small>
               </div>
-              {j.url && <External href={j.url}>Открыть</External>}
+              {j.url && (
+                <External href={j.applicationUrl || j.url}>
+                  {j.source === 'himalayas' ? 'Himalayas' : 'Открыть'}
+                </External>
+              )}
             </div>
           ))}
         </section>
@@ -762,7 +860,7 @@ export function SourcesPage({
                     {r.error ? (
                       <ErrorText error={r.error} />
                     ) : (
-                      `Получено ${r.received} · подходит ${r.matched} · +${r.added}`
+                      `Получено ${r.received} · предварительный отбор ${r.matched} · +${r.added}`
                     )}
                   </span>
                   <small>{r.requests} запросов</small>

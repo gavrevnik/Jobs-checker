@@ -94,7 +94,7 @@ export function TargetVacanciesModal({
                       </button>
                       {job.url && (
                         <a
-                          href={job.url}
+                          href={job.applicationUrl || job.url}
                           target="_blank"
                           rel="noreferrer"
                           aria-label={`Сайт вакансии: ${job.title}`}
@@ -104,6 +104,11 @@ export function TargetVacanciesModal({
                       )}
                     </div>
                     <small>
+                      {job.discoveryAssessment &&
+                        (job.discoveryAssessment.category === 'practice'
+                          ? 'Для тренировки · '
+                          : 'Целевая роль · ')}
+                      {job.source === 'himalayas' && 'Himalayas · '}
                       {job.location || '—'} ·{' '}
                       {job.targetLevel === 'review' ? 'Уровень уточнить' : job.targetLevel} ·{' '}
                       <span className={job.availability.state === 'open' ? 'target-open' : ''}>

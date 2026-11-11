@@ -4,7 +4,11 @@
 
 `Company.hiringSources` — опциональная структура в прежнем company JSON: `checkedAt`, `careers` (URL/status/evidence), `ats[]` (provider/board/URL/status/evidence), `linkedin` (canonical profileUrl, необязательный числовой externalCompanyId, identityStatus confirmed/slug_only/needs_review, evidence), `notes`. Evidence содержит evidenceUrls/evidence/checkedAt/verificationMethod. Точная схема: `shared/company-hiring.ts`. Company PATCH и JSON export/import сохраняют эти поля; обычное редактирование без hiringSources не стирает прежнюю identity. Подтверждённый LinkedIn URL/Company ID нельзя связать со второй компанией. Для снятия связи передайте `linkedin:null` внутри существующего hiringSources. Company Research profile возвращает исходную company-структуру вместе с прежними targetVacancies. Это метаданные источников, не отдельный LinkedIn executor и не подтверждение активности всех вакансий.
 
-`PATCH /api/jobs/:id` поддерживает AI-оценку: `aiScore` (0–10/null), `aiSummary`, `aiReason`, `aiProfileId`, `aiReviewedAt`, `aiEvidenceUrls`. Она сохраняется отдельно от автоматического совпадения с фильтрами; источники её не пересчитывают. `POST /api/source-tools/search` принимает `externalIds` для записи только выбранных после исследования публикаций.
+`PATCH /api/jobs/:id` поддерживает AI-оценку: `aiScore` (0–10/null), `aiSummary`, `aiReason`, `aiProfileId`, `aiReviewedAt`, `aiEvidenceUrls`. Она сохраняется отдельно от автоматического совпадения с фильтрами; источники её не пересчитывают. `POST /api/source-tools/search` принимает `externalIds` для ограничения выдачи. Этот фильтр не заменяет проверку кандидатов.
+
+`POST /api/source-tools/search` принимает `country` или `countries` (до 15 ISO-кодов), `maxRequests` на весь запуск, `maxPages` на запрос и `maxItems` на выдачу. План показывает `targets`, `skipped`, `omittedTargets` и `plannedRequestUpperBound`. `execute:false` — только план, `store:false` — поиск без пакета и записей ATS. При `execute:true,store:true` по умолчанию возвращаются `reviewBatchId` и `candidateId`. `reviewRequired:false` включает прямое сохранение по правилам отбора для явно запрошенного запуска. `/api/source-tools/monitor` и `/api/sync` возвращают `reviewBatchIds` и `pendingReview` для новых вакансий; статусы уже сохранённых вакансий обновляются как прежде.
+
+`POST /api/source-tools/search-review` принимает `{batchId}` для чтения необработанных кандидатов или `{batchId,decisions:[...]}` для применения решений. Для решения нужны `candidateId`, `category` (`target`, `practice`, `reject`), `language` (`en`, `ru`, `other`, `unknown`) и `reason`. Для сохранения требуются `roleFamily` из профиля, язык `en` или `ru` и `quote` из описания. Допустимы `companyId` проверенного работодателя, `officialDescription:{url,text}`, `uncertainties:[]` и `availabilityVerification` официальной страницы. Частичный ответ оставляет остальные вакансии в пакете. Пакет доступен 24 часа при том же профиле; запись не обращается к провайдерам. В карточке вакансии сохраняется `discoveryAssessment`.
 
 Базовый адрес: `http://127.0.0.1:4317/api`. Для записи обязателен `Content-Type: application/json`. Чужие Origin и Host отклоняются. Нет CORS-доступа из сторонних сайтов. Авторизация не нужна: сервер предназначен для одного пользователя на loopback.
 
@@ -108,7 +112,7 @@ Registry 1.2, JSON research 1.0: новый descriptive `AN09_CULTURE` прин�
 
 `providers[].quota.today` в `GET /source-tools` содержит `date`, `timeZone` (Europe/Belgrade), `attempts` и `counted`. Сетевые попытки считаются по местному календарному дню с учётом DST; для SerpAPI известные error/cached не входят в counted, unknown учтён консервативно. Локальные cache hits без HTTP не создают попыток. Это журнал Jobs Checker, не сверка баланса провайдера. Общий `/sync` пропускает SerpAPI; запуск отдельного SerpAPI sourceId и явный providers:[serpapi] в `/source-tools/search` остаются доступны.
 
-Jobicy: `POST /api/source-tools/search` с `providers:["jobicy"]`, `execute:false` по умолчанию; store=true при execute=true использует прежний ATS import. Общий feed (до 200/страницу), maxPages/cursor и maxRequests; роли/компании фильтруются локально. Публичный доступ без credentials/Authorization. Кэш 1 ч и guard одного нового прохода/час общий для UI/API/MCP; страницы текущего прохода не считаются новыми проходами. Статистика HTTP в прежнем provider_requests; дневная/месячная тарифная квота не выдумывается.
+Jobicy: `POST /api/source-tools/search` с `providers:["jobicy"]`, `execute:false` по умолчанию; store=true при execute=true готовит пакет проверки. Общий feed (до 200/страницу), maxPages/cursor и maxRequests; роли/компании фильтруются локально. Публичный доступ без credentials/Authorization. Кэш 1 ч и guard одного нового прохода/час общий для UI/API/MCP; страницы текущего прохода не считаются новыми проходами. Статистика HTTP в прежнем provider_requests; дневная/месячная тарифная квота не выдумывается.
 
 Registry 1.3: A02/A06 исключены из company research и импорта (400 для удалённых criterion_id); производное поле `countries` компании больше не возвращается. Страны job scope и `jobs[].countries`, salary-поля ATS, HQ и страны офисов целевых вакансий сохранены. Одноразовая миграция после локального backup удаляет retired observations/reviews и их копии в документах истории; исходные import digest сохраняются вместе с `removedCriteria`.
 
@@ -141,7 +145,6 @@ Observation принимает optional `short_facts: string[]` (до 3 непу
 ## Glassdoor: только ручной платный запуск
 
 [Контракт и примеры](../discovery/glassdoor.md): status, quote, authorize, execute, локальная история, явный refresh run metadata и offline normalize экспортированного JSON. Семь MCP tools `jobs_company_paid_*`; запуск только по конкретному запросу, с одноразовым grant и лимитом на стороне Apify. Доступны reviews/interviews, без автоматического dataset download или research import.
-
 
 ## Культура и команда
 

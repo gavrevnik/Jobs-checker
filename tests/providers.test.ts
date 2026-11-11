@@ -28,9 +28,9 @@ describe('Source adapters', () => {
       query: 'analyst',
     });
     const mock = vi.fn<typeof fetch>().mockResolvedValue(response({ jobs: [], jobs_results: [] }));
-    await new SyncService(store, mock).run();
+    await new SyncService(store, mock).run(undefined, false);
     expect(mock.mock.calls.some(([url]) => String(url).includes('serpapi'))).toBe(false);
-    await new SyncService(store, mock).run(s.id);
+    await new SyncService(store, mock).run(s.id, false);
     expect(mock.mock.calls.filter(([url]) => String(url).includes('serpapi'))).toHaveLength(1);
   });
   it('turns encoded markup into plain text and strips scripts', () => {
@@ -168,8 +168,8 @@ describe('Source adapters', () => {
     const store = new Store(':memory:');
     stores.push(store);
     const mock = vi.fn<typeof fetch>().mockResolvedValue(response({ jobs: [] }));
-    await new SyncService(store, mock).run();
-    const second = await new SyncService(store, mock).run();
+    await new SyncService(store, mock).run(undefined, false);
+    const second = await new SyncService(store, mock).run(undefined, false);
     expect(mock).toHaveBeenCalledTimes(1);
     expect(second[0].cached).toBe(true);
   });
@@ -183,7 +183,7 @@ describe('Source adapters', () => {
       .mockImplementation(async (url) =>
         String(url).includes('ashby') ? new Response('', { status: 503 }) : response({ jobs: [] }),
       );
-    const result = await new SyncService(store, mock).run();
+    const result = await new SyncService(store, mock).run(undefined, false);
     expect(result).toHaveLength(2);
     expect(result.some((r) => !!r.error)).toBe(true);
     expect(result.some((r) => !r.error)).toBe(true);
@@ -195,7 +195,7 @@ describe('Source adapters', () => {
     const mock = vi
       .fn<typeof fetch>()
       .mockRejectedValue(new Error('https://api.example.com?app_key=secret'));
-    const result = await new SyncService(store, mock).run();
+    const result = await new SyncService(store, mock).run(undefined, false);
     expect(JSON.stringify(result)).not.toContain('secret');
   });
 });

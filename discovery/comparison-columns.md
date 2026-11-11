@@ -69,7 +69,7 @@ offices: [{id,name,country,open,unverified}], openOffices, unverifiedOffices, cl
 
 ### API-провайдеры
 
-Все десять имеющихся адаптеров подключены через общую цепочку **normalize → ingestJobs → jobs/companyId/job_observations → targetVacancies**: Adzuna, SerpAPI Google Jobs, Jooble, Arbeitnow, Remotive, Jobicy, Greenhouse, Lever, Ashby, SmartRecruiters. Отдельного whitelist провайдеров у колонки нет. Только сохранённые результаты (`execute=true, store=true` / sync / авторизованный импорт) входят в счётчики; `execute=false` и `store=false` их не пополняют. `research.job_urls` — найденные ссылки, не автоматически проверенные ATS-вакансии.
+Все двенадцать имеющихся адаптеров подключены через общую цепочку **normalize → ingestJobs → jobs/companyId/job_observations → targetVacancies**: Adzuna, SerpAPI Google Jobs, Jooble, Arbeitnow, Remotive, Jobicy, Himalayas, JobTech, Greenhouse, Lever, Ashby, SmartRecruiters. Отдельного whitelist провайдеров у колонки нет. Только сохранённые результаты входят в счётчики. Поиск с `execute=true, store=true` и ручной sync отправляют новые находки на проверку по умолчанию; `execute=false` и `store=false` их не пополняют. `research.job_urls` — найденные ссылки, не автоматически проверенные ATS-вакансии.
 
 На 19.10.2026 SerpAPI настроен и проверен десятью запросами; Jooble остаётся без ключа. Adzuna, Arbeitnow, Remotive и четыре ATS подключены. Отсутствие постоянной доски Adzuna (`connections=0`) нормально: она выполняет поисковые запросы. Общий refresh пропускает SerpAPI; нужен явный выбор источника по отдельному запросу пользователя. Результаты и ограничения: [проверка SerpAPI](../research/serpapi-check-2026-10-19.md).
 

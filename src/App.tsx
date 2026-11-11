@@ -156,7 +156,15 @@ export default function App() {
   const [showExcluded, setShowExcluded] = useState(false);
   const [visibleCount, setVisibleCount] = useState(40);
   const [syncResults, setSyncResults] = useState<
-    { name: string; added: number; total: number; cached?: boolean; error?: string }[]
+    {
+      name: string;
+      added: number;
+      total: number;
+      cached?: boolean;
+      error?: string;
+      reviewBatchIds?: string[];
+      pendingReview?: number;
+    }[]
   >([]);
   const close = useCallback(() => setDialog(null), []);
   const refresh = useCallback(async () => {
@@ -277,9 +285,12 @@ export default function App() {
       const result = await api('/sync', 'POST', { sourceId });
       setSyncResults(result.results);
       await refresh();
-      setToast(
-        `Новых вакансий: ${result.results.reduce((n: number, r: any) => n + r.added, 0)}. Результаты — в разделе «Полезные ресурсы → Ресурсы».`,
+      const added = result.results.reduce((n: number, r: { added: number }) => n + r.added, 0);
+      const pending = result.results.reduce(
+        (n: number, r: { pendingReview?: number }) => n + (r.pendingReview || 0),
+        0,
       );
+      setToast(`Добавлено: ${added} · На проверке: ${pending}. Результаты в разделе «Ресурсы».`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1036,7 +1047,13 @@ export default function App() {
                                   (r.cached
                                     ? `Данные свежие · ${r.total} вакансий в последней загрузке`
                                     : `+${r.added} новых · получено ${r.total}`)}
+                                {r.pendingReview ? ` · На проверке: ${r.pendingReview}` : ''}
                               </span>
+                              {r.reviewBatchIds?.map((id) => (
+                                <small key={id}>
+                                  Пакет для проверки агентом: <code>{id}</code>
+                                </small>
+                              ))}
                             </div>
                           ))}
                         </div>
@@ -1321,7 +1338,7 @@ export default function App() {
                   Редактировать
                 </button>
                 {details.url && (
-                  <External href={details.url} className="button primary">
+                  <External href={details.applicationUrl || details.url} className="button primary">
                     {details.source === 'remotive' ? 'Открыть в Remotive' : 'Открыть вакансию'}
                   </External>
                 )}
@@ -1334,6 +1351,20 @@ export default function App() {
                   <span key={i}>{t}</span>
                 ))}
               </div>
+              {details.discoveryAssessment && (
+                <div className="details-ai">
+                  <strong>
+                    {details.discoveryAssessment.category === 'target'
+                      ? 'Целевая роль'
+                      : 'Для тренировки'}{' '}
+                    · {details.discoveryAssessment.language.toUpperCase()}
+                  </strong>
+                  <p>{details.discoveryAssessment.reason}</p>
+                  {details.discoveryAssessment.uncertainties.length > 0 && (
+                    <p>Уточнить: {details.discoveryAssessment.uncertainties.join('; ')}</p>
+                  )}
+                </div>
+              )}
               {details.aiScore != null && (
                 <section className="ai-review detail-section">
                   <h3>
@@ -1412,7 +1443,19 @@ export default function App() {
               </div>
               <div className="detail-provenance">
                 <span>
-                  Источник: {providerLabels[details.source]} · Добавлено {date(details.createdAt)}
+                  {details.eligibleLocations?.length ? (
+                    <p>Страны допуска: {details.eligibleLocations.join(', ')}</p>
+                  ) : null}
+                  {details.timezoneRestrictions?.length ? (
+                    <p>Ограничения по часовым поясам: {details.timezoneRestrictions.join(', ')}</p>
+                  ) : null}
+                  Источник:{' '}
+                  {details.source === 'himalayas' ? (
+                    <External href={details.url}>Himalayas</External>
+                  ) : (
+                    providerLabels[details.source]
+                  )}{' '}
+                  · Добавлено {date(details.createdAt)}
                   {details.publishedAt && ` · Опубликовано ${date(details.publishedAt)}`}
                   {details.lastSeenAt && ` · Проверено ${date(details.lastSeenAt)}`}
                 </span>

@@ -55,7 +55,13 @@ describe('Provider tools and ATS ingestion', () => {
       });
     });
     const tools = new SourceTools(s, mock);
-    const args = { providers: ['arbeitnow'], keywords: ['analyst'], execute: true, store: true };
+    const args = {
+      providers: ['arbeitnow'],
+      keywords: ['analyst'],
+      execute: true,
+      store: true,
+      reviewRequired: false,
+    };
     const de = await tools.search(args);
     s.updateJob(de.jobs[0].atsId!, { stage: 'saved', notes: 'Keep German workflow' });
     const uk = await tools.search({ ...args, country: 'gb' });
@@ -89,6 +95,7 @@ describe('Provider tools and ATS ingestion', () => {
       externalIds: ['role-2'],
       execute: true,
       store: true,
+      reviewRequired: false,
     });
     expect(result.jobs.map((j) => j.externalId)).toEqual(['role-2']);
     expect(s.list<Job>('jobs').map((j) => j.externalId)).toEqual(['role-2']);
@@ -102,6 +109,7 @@ describe('Provider tools and ATS ingestion', () => {
       providers: ['serpapi'],
       keywords: ['analyst'],
       store: true,
+      reviewRequired: false,
     });
     expect(result.execute).toBe(false);
     expect(mock).not.toHaveBeenCalled();
@@ -119,7 +127,13 @@ describe('Provider tools and ATS ingestion', () => {
         }),
       );
     const tools = new SourceTools(s, mock);
-    const args = { providers: ['arbeitnow'], keywords: ['analyst'], execute: true, store: true };
+    const args = {
+      providers: ['arbeitnow'],
+      keywords: ['analyst'],
+      execute: true,
+      store: true,
+      reviewRequired: false,
+    };
     const first = await tools.search(args);
     expect(first.jobs).toHaveLength(1);
     expect(first.results[0].added).toBe(1);
@@ -155,7 +169,7 @@ describe('Provider tools and ATS ingestion', () => {
         ],
       }),
     );
-    await new SyncService(s, mock).run(source.id);
+    await new SyncService(s, mock).run(source.id, false);
     expect(s.list<Job>('jobs').map((j) => j.title)).toEqual(['Senior Product Analyst']);
   });
   it('applies explicit profile filters and does not infer remote eligibility or salary', () => {
@@ -215,27 +229,27 @@ describe('Provider tools and ATS ingestion', () => {
       mock = vi.fn<typeof fetch>().mockImplementation(async () => response({ jobs: [posting] }));
     const tools = new SourceTools(s, mock);
     tools.addBoard({ provider: 'ashby', board: 'Acme', name: 'Acme', intervalHours: 6 });
-    await tools.monitor({ execute: true });
+    await tools.monitor({ execute: true, reviewRequired: false });
     const job = s.list<Job>('jobs')[0];
     s.updateJob(job.id, { stage: 'applied', notes: 'preserve' });
     mock.mockImplementation(async () => response({ jobs: [] }));
     vi.advanceTimersByTime(7 * 3600000);
-    await tools.monitor({ execute: true });
+    await tools.monitor({ execute: true, reviewRequired: false });
     expect(s.observations()[0].missingCount).toBe(1);
-    await tools.monitor({ execute: true });
+    await tools.monitor({ execute: true, reviewRequired: false });
     expect(s.observations()[0].missingCount).toBe(1);
     vi.advanceTimersByTime(7 * 3600000);
     mock.mockImplementation(async () => new Response('', { status: 503 }));
-    await tools.monitor({ execute: true });
+    await tools.monitor({ execute: true, reviewRequired: false });
     expect(s.observations()[0].missingCount).toBe(1);
     vi.advanceTimersByTime(7 * 3600000);
     mock.mockImplementation(async () => response({ jobs: [] }));
-    await tools.monitor({ execute: true });
+    await tools.monitor({ execute: true, reviewRequired: false });
     expect(s.observations()[0].missingCount).toBe(2);
     expect(s.list<Job>('jobs')[0]).toMatchObject({ stage: 'applied', notes: 'preserve' });
     vi.advanceTimersByTime(7 * 3600000);
     mock.mockImplementation(async () => response({ jobs: [posting] }));
-    await tools.monitor({ execute: true });
+    await tools.monitor({ execute: true, reviewRequired: false });
     expect(s.observations()[0].missingCount).toBe(0);
   });
   it('does not mark filtered-out jobs missing on an intact board', async () => {

@@ -62,9 +62,11 @@ it('does not charge a repeated SerpAPI search ID twice across different query UR
 
 it('reports an empty Google Jobs result without suggesting a credential failure or charging the monthly quota', async () => {
   const store = db();
-  const network = vi.fn<typeof fetch>().mockResolvedValue(
-    new Response(JSON.stringify({ error: "Google hasn't returned any results for this query." })),
-  );
+  const network = vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(
+      new Response(JSON.stringify({ error: "Google hasn't returned any results for this query." })),
+    );
   const fetcher = meteredFetcher(store, 'serpapi', budget(), network);
   await expect(fetcher('https://example.test/empty')).rejects.toThrow(
     'SerpAPI: Google не вернул результатов для этого запроса',
@@ -99,13 +101,14 @@ it('returns and stores the completed source when the next source exceeds the req
     providers: ['ashby', 'greenhouse'],
     execute: true,
     store: true,
+    reviewRequired: false,
     maxRequests: 1,
   });
   expect(network).toHaveBeenCalledTimes(1);
   expect(result.requests).toBe(1);
   expect(result.jobs).toHaveLength(1);
   expect(store.list<Job>('jobs')).toHaveLength(1);
-  expect(result.results.filter((r) => r.error)).toHaveLength(1);
+  expect(result.omittedTargets).toBe(1);
 });
 
 it('keeps ATS ID, history, notes, AI feedback and follow-up after repeated normalized source updates', () => {

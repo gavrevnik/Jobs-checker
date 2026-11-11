@@ -23,6 +23,8 @@ export const providerLabels: Record<string, string> = {
   import: 'Импорт',
   remotive: 'Remotive',
   jobicy: 'Jobicy',
+  himalayas: 'Himalayas',
+  jobtech: 'JobTech JobSearch',
   greenhouse: 'Greenhouse',
   lever: 'Lever',
   ashby: 'Ashby',
@@ -111,6 +113,12 @@ export const companySchema = z.object({
   status: z.enum(['watching', 'research', 'contacted', 'archived']).default('watching'),
   demo: z.boolean().default(false),
 });
+export const availabilityVerificationSchema = z.object({
+  state: z.enum(['open', 'closed']),
+  source: z.enum(['careers', 'ats']),
+  url: z.url().refine((v) => /^https?:\/\//i.test(v)),
+  checkedAt: z.iso.datetime(),
+});
 export const jobSchema = z
   .object({
     title: z.string().trim().min(1, 'Укажите название вакансии').max(300),
@@ -144,6 +152,8 @@ export const jobSchema = z
         'import',
         'remotive',
         'jobicy',
+        'himalayas',
+        'jobtech',
         'greenhouse',
         'lever',
         'ashby',
@@ -157,15 +167,36 @@ export const jobSchema = z
       .default('manual'),
     externalId: text.default(''),
     publishedAt: timestamp.default(''),
-    // An explicit check of this position, independent of its discovery source/CRM stage.
-    availabilityVerification: z
+    applicationUrl: link.optional(),
+    sourceUpdatedAt: timestamp.optional(),
+    sourceClosedAt: timestamp.optional(),
+    applicationDeadline: timestamp.optional(),
+    sourceRemoved: z.boolean().optional(),
+    descriptionCompleteness: z.enum(['full', 'excerpt', 'unknown']).optional(),
+    eligibleLocations: z.array(z.string().max(150)).max(300).optional(),
+    timezoneRestrictions: z.array(z.string().max(50)).max(100).optional(),
+    providerCompanyId: z.string().max(200).optional(),
+    discoveryAssessment: z
       .object({
-        state: z.enum(['open', 'closed']),
-        source: z.enum(['careers', 'ats']),
-        url: z.url().refine((v) => /^https?:\/\//i.test(v)),
-        checkedAt: z.iso.datetime(),
+        category: z.enum(['target', 'practice']),
+        roleFamily: z.enum([
+          'product_analytics',
+          'data_analytics',
+          'decision_science',
+          'analytics_lead',
+        ]),
+        language: z.enum(['en', 'ru']),
+        reason: z.string().max(2000),
+        quote: z.string().max(700),
+        evidenceUrl: link,
+        uncertainties: z.array(z.string().max(300)).max(10),
+        reviewedAt: z.iso.datetime(),
+        scenarioId: z.string().max(100),
+        profileVersion: z.number().int().optional(),
       })
       .optional(),
+    // An explicit check of this position, independent of its discovery source/CRM stage.
+    availabilityVerification: availabilityVerificationSchema.optional(),
     demo: z.boolean().default(false),
   })
   .refine(
@@ -201,6 +232,8 @@ export const sourceSchema = z
     provider: z.enum([
       'remotive',
       'jobicy',
+      'himalayas',
+      'jobtech',
       'greenhouse',
       'lever',
       'ashby',

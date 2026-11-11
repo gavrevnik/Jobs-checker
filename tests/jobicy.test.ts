@@ -66,6 +66,7 @@ describe('Jobicy public integration', () => {
       keywords: ['product analyst', 'data analyst'],
       execute: true,
       store: true,
+      reviewRequired: false,
     };
     const first = await tools.search(args);
     expect(first.requests).toBe(1);
@@ -165,7 +166,7 @@ describe('Jobicy public integration', () => {
       .mockResolvedValueOnce(response({ jobs: [row(1)], nextCursor: null }))
       .mockResolvedValueOnce(response({ jobs: [], nextCursor: null }));
     const tools = new SourceTools(store, mock);
-    const args = { providers: ['jobicy'], execute: true, store: true };
+    const args = { providers: ['jobicy'], execute: true, store: true, reviewRequired: false };
     await tools.search(args);
     vi.advanceTimersByTime(3600001);
     await tools.search(args);

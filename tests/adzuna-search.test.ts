@@ -129,6 +129,7 @@ describe('Native Adzuna search filters', () => {
       providers: ['adzuna'],
       country: 'es',
       execute: true,
+      keywords: ['product analyst'],
       adzuna: { salary_min: 50000 },
     };
     expect((await tools.search(args)).jobs).toHaveLength(1);
@@ -151,6 +152,7 @@ describe('Native Adzuna search filters', () => {
       country: 'es',
       execute: true,
       store: true,
+      reviewRequired: false,
       maxRequests: 1,
       maxPages: 2,
       adzuna: { page: 4, results_per_page: 1 },

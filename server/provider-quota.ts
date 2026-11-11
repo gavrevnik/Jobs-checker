@@ -99,19 +99,19 @@ export function quota(store: Store, provider: string, now = new Date()): Provide
     pricingUrl = '',
     note = '';
   if (provider === 'adzuna') {
-    plan = 'Adzuna · personal research';
+    plan = 'Adzuna · локальный защитный лимит';
     pricingUrl = 'https://developer.adzuna.com/docs/terms_of_service';
     windows = [
       window(
         'месяц',
-        2500,
+        positiveLimit(process.env.ADZUNA_MONTHLY_LIMIT, 2500),
         month,
         nextMonth,
         'Локальный календарный месяц: сброс 1-го числа в 00:00 UTC. Границы периода и часовой пояс сброса Adzuna не подтверждены; это локальная оценка.',
       ),
-      rolling('7 дней', 1000, 7 * DAY),
-      rolling('24 часа', 250, DAY),
-      rolling('минута', 25, 60000),
+      rolling('7 дней', positiveLimit(process.env.ADZUNA_WEEKLY_LIMIT, 1000), 7 * DAY),
+      rolling('24 часа', positiveLimit(process.env.ADZUNA_DAILY_LIMIT, 250), DAY),
+      rolling('минута', positiveLimit(process.env.ADZUNA_MINUTE_LIMIT, 25), 60000),
     ];
     note =
       'Считаются все отправленные попытки, включая ошибки. Границы периода и время сброса у провайдера не подтверждены и могут отличаться от локального расчёта.';
@@ -158,6 +158,11 @@ export function quota(store: Store, provider: string, now = new Date()): Provide
     ];
     note =
       'Считаются все попытки для текущего регионального ключа. Старые записи без идентификатора ключа включены консервативно.';
+  } else if (provider === 'himalayas' || provider === 'jobtech') {
+    plan = provider === 'himalayas' ? 'Himalayas · публичный доступ' : 'JobTech · публичный доступ';
+    windows = [rolling('минута', 10, 60000)];
+    note =
+      '10 запросов в минуту — локальная защита Jobs Checker. При HTTP 429 приложение учитывает Retry-After.';
   } else if (provider === 'jobicy') {
     plan = 'Jobicy · public free';
     pricingUrl = 'https://jobicy.com/jobs-rss-feed';

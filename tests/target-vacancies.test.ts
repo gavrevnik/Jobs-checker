@@ -73,7 +73,7 @@ describe('Target vacancies contract', () => {
       };
       await tools.search({ ...args, store: false });
       expect(new CompanyResearch(store).profile(saved.companyId).targetVacancies.open).toBe(0);
-      await tools.search({ ...args, store: true });
+      await tools.search({ ...args, store: true, reviewRequired: false });
       const targets = new CompanyResearch(store).profile(saved.companyId).targetVacancies;
       expect(targets.total).toBe(1);
       expect(targets.open).toBe(0);

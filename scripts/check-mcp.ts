@@ -50,7 +50,7 @@ try {
     }),
   );
   const listed = await client.listTools();
-  assert.equal(listed.tools.length, 36);
+  assert.equal(listed.tools.length, 37);
   for (const suffix of ['status', 'quote', 'authorize', 'execute', 'runs', 'refresh', 'normalize'])
     assert.ok(listed.tools.some((t) => t.name === `jobs_company_paid_${suffix}`));
   assert.ok(listed.tools.some((t) => t.name === 'jobs_company_research_recalculate'));
@@ -66,7 +66,7 @@ try {
   assert.deepEqual((await call('jobs_company_paid_runs')).runs, []);
   const denied = await client.callTool({ name: 'jobs_company_paid_execute', arguments: {} });
   assert.ok(denied.isError);
-  assert.equal(status.providers.length, 10);
+  assert.equal(status.providers.length, 12);
   assert.ok(status.providers.some((p: any) => p.id === 'jobicy' && !p.missing.length));
   assert.equal(status.providers.find((p: any) => p.id === 'adzuna').quota.limit, 2500);
   assert.equal(status.providers.find((p: any) => p.id === 'jooble').quota.limit, 500);
@@ -82,6 +82,13 @@ try {
   });
   assert.equal(plan.execute, false);
   assert.equal(plan.requests, 0);
+  assert.equal(plan.reviewRequired, true);
+  const missingBatch = await client.callTool({
+    name: 'jobs_search_review',
+    arguments: { batchId: '5b3aa061-92c3-49af-b040-3aa5a187ea6f' },
+  });
+  assert.equal(missingBatch.isError, true);
+  assert.match(JSON.stringify(missingBatch.content), /Пакет проверки/);
   const nativePlan = await call('jobs_search', {
     providers: ['adzuna'],
     country: 'es',
@@ -314,7 +321,7 @@ try {
   );
   assert.equal((await call('jobs_ats_list')).jobs[0].notes, 'Keep this');
   console.log(
-    'MCP check passed: stdio initialization, 36 tools including manual paid research status/guards, professional core/scenarios/assessment history, research preview/import/review/history/recalculate, dry-run, board registration, web plan, ATS preview/import/dedup/update. No external provider calls.',
+    'MCP check passed: stdio initialization, 37 tools including manual paid research status/guards, professional core/scenarios/assessment history, research preview/import/review/history/recalculate, dry-run, search review, board registration, web plan, ATS preview/import/dedup/update. No external provider calls.',
   );
 } finally {
   await client.close();

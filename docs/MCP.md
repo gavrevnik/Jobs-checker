@@ -4,7 +4,9 @@ Company profiles (`jobs_profiles`, `jobs_company_research_profile/list`) вкл�
 
 `jobs_company_research_recalculate({companyIds:[...]})` — итоговый локальный пересчёт сохранённого score/coverage после авторизованного discovery/monitoring, включая давность evidence. Возвращает `scoresCalculatedAt` по компаниям; без companyIds — весь каталог. List/profile и фильтры читают готовые оценки; новый набор observations/review автоматически обновляет снимок. Не меняет факты, verification, job aiScore или dataDrivenScore и не вызывает внешние API.
 
-`npm run mcp` запускает stdio MCP-сервер с двенадцатью инструментами. Локальный jobs-checker должен работать отдельно: `npm start` или штатный запуск из Life Hub. Обёртка обращается только к loopback HTTP API; сама не открывает SQLite и не обращается к провайдерам. Секреты остаются в `.env` локального сервиса.
+`npm run mcp` запускает stdio MCP-сервер. Локальный jobs-checker должен работать отдельно: `npm start` или штатный запуск из Life Hub. Обёртка обращается только к loopback HTTP API; сама не открывает SQLite и не обращается к провайдерам. Секреты остаются в `.env` локального сервиса.
+
+`jobs_search` поддерживает список `countries` и общий бюджет. При `store:true` новые вакансии по умолчанию идут в пакет `reviewBatchId`. `jobs_monitor_companies` возвращает `reviewBatchIds` по доскам. `jobs_search_review({batchId})` читает пакет. После проверки передайте `decisions` с категориями `target`, `practice`, `reject`; сервер сохраняет первые две с обоснованием и цитатой. Для разового запуска без проверки передайте `reviewRequired:false` явно. [Поля API](API.md) · [Правила проверки](../discovery/workflow-common.md#проверка-новых-вакансий-перед-добавлением).
 
 ## Подключение
 
@@ -33,12 +35,13 @@ tool_timeout_sec = 300
 | `jobs_discovery_history` | Сохранённые стратегии, результаты и рекомендации прошлых подборок                    |
 | `jobs_discovery_save`    | Сохранить/обновить summary поиска, параметры запросов и ID карточек                  |
 | `jobs_profiles`          | Профили и компании: получить реальные ID перед вызовами                              |
-| `jobs_search`            | План или поиск; `execute=false` по умолчанию; `store=true` пополняет ATS             |
+| `jobs_search`            | План или поиск; `execute=false` по умолчанию; `store=true` готовит пакет проверки    |
 | `jobs_add_company_board` | Добавить компанию/доску и настройки мониторинга, без запроса к провайдеру            |
 | `jobs_monitor_companies` | План или проверка due-досок; `execute=true` сохраняет подходящие вакансии            |
 | `jobs_enrich`            | Подробности существующей карточки SmartRecruiters; `execute=true`, максимум 1 запрос |
 | `jobs_web_search_plan`   | Запросы для web-tools, не самостоятельный веб-поиск                                  |
 | `jobs_ats_list`          | Карточки ATS по тексту/этапу и происхождение                                         |
+| `jobs_search_review`     | Чтение пакета и сохранение результатов проверки                                      |
 | `jobs_ats_import`        | Предпросмотр проверенных web/MCP результатов; `store=true` записывает                |
 | `jobs_ats_update`        | Этап, заметки, избранное и follow-up локальной карточки                              |
 
@@ -61,9 +64,9 @@ tool_timeout_sec = 300
 
 `profileId` добавляет фильтры выбранного профиля. Явные поля переопределяют его: `locations: []` снимает локальный фильтр географии, `minSalary: null` снимает порог. `country` не выводится из свободного текста профиля. Для board-провайдеров нужны зарегистрированные доски; можно ограничить `sourceIds`. `maxPages` ограничивает discovery; ATS-доски всегда читаются полностью, а `maxRequests` останавливает слишком большой проход без ложного закрытия ролей.
 
-Для исполнения передайте `execute: true` и осмысленный `maxRequests`; по умолчанию 10, максимум 100. Результаты содержат ошибки отдельных адаптеров, количество запросов, нормализованные вакансии и локальные `atsId`, если `store=true`. Отсутствие ключа не мешает другим выбранным провайдерам.
+Для исполнения передайте `execute: true` и осмысленный `maxRequests`; по умолчанию 10, максимум 100. Результаты содержат ошибки отдельных адаптеров, количество запросов, нормализованные вакансии и `candidateId` для пакета проверки. `atsId` возвращается после сохранения решений или прямого сохранения при явном обходе проверки. Отсутствие ключа не мешает другим выбранным провайдерам.
 
-Для отбора агентом сначала выполните поиск с `store=false`, прочитайте описания, затем повторите с `store=true`, выбранными `sourceIds` и `externalIds`. Последнее поле ограничивает запись точными ID отобранных публикаций; остальные фильтры продолжают действовать. Повтор использует общий кэш. Ранее импортированная карточка без привязанного источника обновляется и связывается с ATS при совпадении канонического URL; этап, заметки и AI-оценка сохраняются. Для Greenhouse учитываются повторяющие ID query-параметры, для SmartRecruiters — варианты URL со slug и без него.
+Для отбора агентом выполните поиск с `execute:true,store:true`, прочитайте описания и передайте решения в `jobs_search_review`. `externalIds` позволяет сузить поиск до известных ID. Ранее импортированная карточка связывается с источником при совпадении канонического URL. Этап, заметки и AI-оценка сохраняются.
 
 Для повторной проверки компаний:
 
@@ -103,16 +106,15 @@ Company research registry 1.2: `AN09_CULTURE` — descriptive `{summary,tags}`; 
 
 Скиллы [discovery](../.agents/skills/jobs-discovery/SKILL.md), [monitoring](../.agents/skills/jobs-monitoring/SKILL.md), [pool review](../.agents/skills/jobs-pool-review/SKILL.md) используют существующие tools и [общие правила](../discovery/workflow-common.md), без нового расписания. `jobs_monitor_companies` остаётся мониторингом зарегистрированных ATS; агентский monitoring дополнительно использует search/web по пробелам.
 
-`jobs_search({providers:["jobicy"], execute:false})` — план без сети. Для разрешённого прохода execute=true, maxRequests/maxPages; store=true сохраняет результаты в общую ATS. Jobicy не требует ключа; общий feed скачивается один раз и фильтруется локально. Часовой guard сохраняется между процессами и считает новые проходы, не cursor-страницы. `jobs_sources_status` возвращает десять адаптеров, в том числе Jobicy; запросы, кэш и история используют прежние таблицы. `jobs_web_search_plan` включает Workday как web-канал, но не выполняет поиск.
+`jobs_search({providers:["jobicy"], execute:false})` — план без сети. Для разрешённого прохода execute=true, maxRequests/maxPages; store=true готовит пакет для проверки. Jobicy не требует ключа; общий feed скачивается один раз и фильтруется локально. Часовой guard сохраняется между процессами и считает новые проходы, не cursor-страницы. `jobs_sources_status` возвращает двенадцать адаптеров, в том числе Jobicy; запросы, кэш и история используют прежние таблицы. `jobs_web_search_plan` включает Workday как web-канал, но не выполняет поиск.
 
 Registry 1.4 добавляет descriptive `T08_INFRA` с `{summary,tags}` и `collection_sources.columns`/`columnSources.infrastructure`. JSON research остаётся 1.0; новый criterion_id проходит прежний preview/import/review. Таблица переносит проверенный стек в «Инфраструктуру», T03=true в LLM-тег культуры; удаление колонок не удаляет факты или оценки API. [Правила тегов](../discovery/analytics-tags.md).
 
-Arbeitnow: `jobs_search({providers:["arbeitnow"],country:"gb",execute:false})` планирует британскую ленту. Пустой country или `de` сохраняет прежнюю немецкую; другие рынки для этого провайдера отклоняются. UK sourceId — `discovery:arbeitnow:gb`. Оба рынка используют прежние cache/quota adapters, новые credentials не нужны.
+Arbeitnow: `jobs_search({providers:["arbeitnow"],country:"gb",execute:false})` планирует британскую ленту. Пустой country или `de` сохраняет немецкую, `fr` выбирает французскую. Рынки используют прежние cache/quota adapters, новые credentials не нужны.
 
 ## Glassdoor: только ручной платный запуск
 
 [Контракт и примеры](../discovery/glassdoor.md): status, quote, authorize, execute, локальная история, явный refresh run metadata и offline normalize экспортированного JSON. Семь MCP tools `jobs_company_paid_*`; запуск только по конкретному запросу, с одноразовым grant и лимитом на стороне Apify. Доступны reviews/interviews, без автоматического dataset download или research import.
-
 
 ## Культура и команда
 

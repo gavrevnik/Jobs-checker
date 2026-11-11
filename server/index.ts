@@ -51,6 +51,9 @@ app.patch('/api/source-tools/providers/:id', (req, res) =>
 app.post('/api/source-tools/search', async (req, res) =>
   res.json(await sourceTools.search(req.body)),
 );
+app.post('/api/source-tools/search-review', (req, res) =>
+  res.json(sourceTools.reviews.review(req.body)),
+);
 app.post('/api/source-tools/boards', (req, res) => res.json(sourceTools.addBoard(req.body)));
 app.post('/api/source-tools/monitor', async (req, res) =>
   res.json(await sourceTools.monitor(req.body)),
@@ -121,6 +124,7 @@ app.delete('/api/sources/:id', (req, res) => {
 app.post('/api/sync', async (req, res) => {
   const results = await sync.run(
     typeof req.body.sourceId === 'string' ? req.body.sourceId : undefined,
+    req.body.reviewRequired !== false,
   );
   res.json({ results });
 });

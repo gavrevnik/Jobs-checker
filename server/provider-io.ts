@@ -60,10 +60,15 @@ export function meteredFetcher(
     if (budget.used >= budget.limit)
       throw new Error('Достигнут лимит запросов запуска; увеличьте maxRequests');
     const requestId = store.transaction(() => {
+      const cooldown = store.db
+        .prepare('SELECT value FROM settings WHERE key=?')
+        .get(`provider-cooldown:${provider}`);
+      if (cooldown && Number(cooldown.value) > Date.now())
+        throw new Error('API просит подождать после HTTP 429');
       const exhausted = quota(store, provider).windows.find((w) => w.remaining === 0);
       if (exhausted)
         throw new Error(`Достигнут локальный лимит API: ${exhausted.label} (${exhausted.limit})`);
-      const windows = ['adzuna', 'serpapi'].includes(provider)
+      const windows = ['adzuna', 'serpapi', 'himalayas', 'jobtech'].includes(provider)
         ? []
         : provider === 'remotive'
           ? [[6 * 3600000, 1]]
@@ -98,6 +103,20 @@ export function meteredFetcher(
     const response = await fetcher(url, init);
     if (!response.ok) {
       store.db.prepare("UPDATE provider_requests SET outcome='error' WHERE rowid=?").run(requestId);
+      if (response.status === 429 && ['himalayas', 'jobtech', 'arbeitnow'].includes(provider)) {
+        const after = response.headers.get('Retry-After');
+        const milliseconds =
+          after && /^\d+$/.test(after)
+            ? Number(after) * 1000
+            : (after ? Date.parse(after) : NaN) - Date.now();
+        const retryAt =
+          Date.now() + Math.max(60000, Number.isFinite(milliseconds) ? milliseconds : 0);
+        store.db
+          .prepare(
+            'INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+          )
+          .run(`provider-cooldown:${provider}`, String(retryAt));
+      }
       return response;
     }
     // Consume a bounded stream before JSON parsing or caching.
@@ -151,7 +170,10 @@ export function meteredFetcher(
       .run(repeated ? 'cached' : 'success', externalId, requestId);
     const observedAt = new Date().toISOString();
     if (!budget.observedAt || observedAt < budget.observedAt) budget.observedAt = observedAt;
-    const ttl = providerCatalog.find((p) => p.id === provider)!.ttlHours * 3600000;
+    const ttl =
+      provider === 'himalayas' && new URL(String(url)).pathname.startsWith('/jobs/api/companies/')
+        ? 10 * 60000
+        : providerCatalog.find((p) => p.id === provider)!.ttlHours * 3600000;
     store.db
       .prepare(
         'INSERT INTO provider_cache VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET body=excluded.body,at=excluded.at,expires=excluded.expires',

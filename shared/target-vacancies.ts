@@ -10,9 +10,18 @@ export const targetVacancyContract = {
   history: 'all_saved',
 } as const;
 export function targetLevel(
-  job: Pick<Job, 'title' | 'seniority'> & Partial<Pick<Job, 'description'>>,
+  job: Pick<Job, 'title' | 'seniority'> & Partial<Pick<Job, 'description' | 'discoveryAssessment'>>,
   profile?: Profile,
 ): 'intern' | 'junior' | 'middle' | 'senior' | 'lead' | 'review' | null {
+  const assessment = job.discoveryAssessment;
+  if (
+    assessment &&
+    profile?.selection &&
+    assessment.profileVersion === profile.selection.version &&
+    (!profile.selection.roleFamilies.length ||
+      profile.selection.roleFamilies.includes(assessment.roleFamily))
+  )
+    return job.seniority === 'unknown' ? 'review' : job.seniority;
   if (profile?.selection?.roleFamilies.length) {
     const result = professionalRole(job, profile);
     return result === 'excluded' ? null : result;
@@ -117,15 +126,22 @@ export function jobAvailability(
       time(b.at) - time(a.at) || Number(b.state === 'closed') - Number(a.state === 'closed'),
   );
   const confirmed = evidence[0];
-  const observedAt = latest([checkedAt, confirmed?.at || '']);
+  const sourceClosedAt =
+    job.source === 'himalayas' && valid(job.sourceClosedAt || '') ? job.sourceClosedAt! : '';
+  const observedAt = latest([checkedAt, confirmed?.at || '', sourceClosedAt]);
+  const sourceClosed =
+    !!sourceClosedAt && (!confirmed || confirmed.state !== 'open' || !fresh(confirmed.at));
+  const pastDeadline = !!job.applicationDeadline && time(job.applicationDeadline) < now;
   const state: AvailabilityState =
-    confirmed?.state === 'closed'
+    confirmed?.state === 'closed' || sourceClosed
       ? 'closed'
-      : confirmed && fresh(confirmed.at)
-        ? 'open'
-        : fresh(observedAt) || !observedAt
-          ? 'unverified'
-          : 'stale';
+      : pastDeadline || job.sourceRemoved
+        ? 'stale'
+        : confirmed && fresh(confirmed.at)
+          ? 'open'
+          : fresh(observedAt) || !observedAt
+            ? 'unverified'
+            : 'stale';
   return {
     state,
     // Kept for API compatibility; this is observation time, not proof of openness.
@@ -133,10 +149,12 @@ export function jobAvailability(
     verifiedAt: confirmed?.at || '',
     verificationUrl: confirmed?.url || '',
     reason:
-      state === 'open' || state === 'closed'
-        ? confirmed!.reason
-        : observedAt
-          ? 'observation_only'
-          : 'undated',
+      state === 'closed' && sourceClosed && confirmed?.state !== 'closed'
+        ? 'provider_withdrawn'
+        : state === 'open' || state === 'closed'
+          ? confirmed!.reason
+          : observedAt
+            ? 'observation_only'
+            : 'undated',
   };
 }

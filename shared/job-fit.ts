@@ -62,6 +62,22 @@ export function locationMatch(
     return 'match';
   return places.length ? 'mismatch' : 'unknown';
 }
+export function jobLocationMatch(
+  job: Pick<JobInput, 'location' | 'workMode' | 'eligibleLocations'>,
+  requested: string[],
+): ReturnType<typeof locationMatch> {
+  if (!requested.length) return 'match';
+  if (job.workMode !== 'remote' || !job.eligibleLocations)
+    return locationMatch(job.location, requested);
+  if (!job.eligibleLocations.length) return 'match';
+  const wanted = requested.map((place) => locateJob(place).map((p) => p.code));
+  const allowed = job.eligibleLocations.map((place) => locateJob(place).map((p) => p.code));
+  if (wanted.flat().some((code) => allowed.flat().includes(code))) return 'match';
+  return wanted.every((place) => place.length) && allowed.every((place) => place.length)
+    ? 'mismatch'
+    : 'unknown';
+}
+
 export function scenarioFit(
   job: JobInput,
   scenario: Scenario | undefined,
@@ -71,7 +87,7 @@ export function scenarioFit(
     blockers: string[] = [];
   if (!scenario)
     return { status: 'not_selected', questions, blockers, label: 'Без ограничений географии' };
-  const geo = locationMatch(job.location, scenario.locations);
+  const geo = jobLocationMatch(job, scenario.locations);
   if (geo === 'unknown') questions.push('Доступна ли работа из выбранной страны');
   if (geo === 'mismatch') blockers.push('Другая география');
   if (scenario.workMode !== 'any' && job.workMode === 'unknown') questions.push('Формат работы');

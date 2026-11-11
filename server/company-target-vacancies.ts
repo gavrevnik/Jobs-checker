@@ -46,7 +46,14 @@ export function companyTargetVacancies(
     (j) =>
       j.companyId === companyId &&
       targetLevel(j, profile) &&
-      (!profile || acceptsJob(j, searchSchema.parse({}), profile)),
+      (!profile ||
+        acceptsJob(
+          j,
+          searchSchema.parse({}),
+          profile,
+          !!j.discoveryAssessment &&
+            j.discoveryAssessment.profileVersion === profile.selection?.version,
+        )),
   );
   // ATS IDs are the navigation contract; a repeated URL never inflates the counters.
   const grouped = new Map<string, Job[]>();
@@ -77,10 +84,12 @@ export function companyTargetVacancies(
       const state =
         official.state === 'open' || official.state === 'closed'
           ? official.state
-          : !checkedAt ||
-              Date.parse(checkedAt) >= now - targetVacancyContract.openWithinDays * 86400000
-            ? ('unverified' as const)
-            : ('stale' as const);
+          : ranked.every((r) => r.availability.state === 'stale')
+            ? ('stale' as const)
+            : !checkedAt ||
+                Date.parse(checkedAt) >= now - targetVacancyContract.openWithinDays * 86400000
+              ? ('unverified' as const)
+              : ('stale' as const);
       const availability = { ...official, state, checkedAt };
       return {
         ...j,
@@ -171,9 +180,14 @@ export function companyTargetVacancies(
     // Search adapters use virtual source IDs, not rows in sources. Preserve their
     // attribution even when URL dedupe kept an older imported ATS card.
     for (const o of presence) {
-      const provider = o.sourceId.replace(/^discovery:/, '');
+      const provider = o.sourceId.split(':')[1];
       if (o.sourceId.startsWith('discovery:') && providerLabels[provider])
-        add(`provider:${provider}`, providerLabels[provider], '', o.lastSeenAt);
+        add(
+          `provider:${provider}`,
+          providerLabels[provider],
+          provider === 'himalayas' ? 'https://himalayas.app/' : '',
+          o.lastSeenAt,
+        );
     }
     if (![job.sourceId, ...links].some((id) => linkedSources.some((s) => s.id === id))) {
       // A job's own observation is dated; editedAt/createdAt do not prove a provider refresh.
@@ -197,6 +211,7 @@ export function companyTargetVacancies(
       : targetVacancyContract,
     companyId,
     total: jobs.length,
+    practice: jobs.filter((j) => j.discoveryAssessment?.category === 'practice').length,
     open: jobs.filter((j) => j.availability.state === 'open').length,
     closed: jobs.filter((j) => j.availability.state === 'closed').length,
     unverified: jobs.filter((j) => j.availability.state === 'unverified').length,

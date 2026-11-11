@@ -1,3 +1,4 @@
+import { searchReviewSchema } from '../server/search-reviews.js';
 import { fileURLToPath } from 'node:url';
 import { config } from 'dotenv';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -8,7 +9,7 @@ import { boardSchema } from '../server/source-tools.js';
 import { discoveryReviewSchema, discoveryHistorySchema } from '../shared/discovery-review.js';
 import { importSchema } from '../server/store.js';
 import { researchImportSchema, observationSchema } from '../shared/company-research.js';
-import { stages } from '../shared/model.js';
+import { availabilityVerificationSchema, stages } from '../shared/model.js';
 import { cultureAssessmentSchema } from '../shared/company-culture-fit.js';
 import { fitAssessmentSchema } from '../shared/company-fit.js';
 import { selectionInputSchema } from '../shared/selection-profile.js';
@@ -31,7 +32,7 @@ const server = new McpServer(
   { name: 'jobs-checker', version: '0.2.0' },
   {
     instructions:
-      'Use jobs_sources_status and jobs_discovery_history first. Search and monitoring default to execute=false (no provider calls). Set execute=true only for an intended live run; maxRequests is a hard network request budget. store=true writes matching vacancies to the local ATS and preserves user workflow. Remote does not imply worldwide eligibility. Web-plan returns queries, not verified vacancies. Import only verified real job URLs; do not invent dates, salary or location. Never submit applications.',
+      'Use jobs_sources_status and jobs_discovery_history first. Search and monitoring default to execute=false (no provider calls). Set execute=true only for an intended live run; maxRequests is a hard network request budget. store=true stages candidates for review by default. Use jobs_search_review before saving discovery results. Remote does not imply worldwide eligibility. Web-plan returns queries, not verified vacancies. Import only verified real job URLs; do not invent dates, salary or location. Never submit applications.',
   },
 );
 async function call(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST') {
@@ -113,10 +114,19 @@ server.registerTool(
   'jobs_search',
   {
     description:
-      'Plan or execute provider search with profile filters. execute=false by default. store=true upserts results to ATS. Budget includes all pages and queries; keywords are OR alternatives. Use adzuna for native salary, age, keyword, company, geographic and contract filters (see schema); explicit native keyword fields produce one Adzuna query, local/profile filters still apply. Country is explicit for Adzuna/Jooble; locations are strict text filters.',
+      'Plan or execute provider search with profile filters. execute=false by default. store=true stages candidates for LLM review by default; jobs_search_review saves target/practice. reviewRequired=false bypasses review only when explicitly requested. countries permits multiple markets under one budget. Budget includes all pages and queries; keywords are OR alternatives. Use adzuna for native salary, age, keyword, company, geographic and contract filters (see schema); explicit native keyword fields produce one Adzuna query, local/profile filters still apply. Country is explicit for Adzuna/Jooble; locations are strict text filters.',
     inputSchema: searchSchema.shape,
   },
   (args) => call('/source-tools/search', args),
+);
+server.registerTool(
+  'jobs_search_review',
+  {
+    description:
+      'Read a staged candidate batch with no decisions. After reading the job and current profile, submit reject, practice, or target. Target/practice require EN/RU working language, reason and a quote in the job text or supplied officialDescription. Leave insufficient evidence pending. Decisions save locally; no external API requests.',
+    inputSchema: searchReviewSchema.shape,
+  },
+  (args) => call('/source-tools/search-review', args),
 );
 server.registerTool(
   'jobs_add_company_board',
@@ -131,12 +141,13 @@ server.registerTool(
   'jobs_monitor_companies',
   {
     description:
-      'Plan or run due company boards, with full snapshots, saved profile filters and safe missing detection. execute=false by default. No scheduler is installed.',
+      'Plan or run due company boards. Refresh existing jobs and stage new jobs for jobs_search_review by default. reviewRequired=false bypasses review only on explicit request. execute=false by default.',
     inputSchema: {
       sourceIds: z.array(z.string()).max(50).default([]),
       scenarioId: z.string().max(100).optional(),
       execute: z.boolean().default(false),
       maxRequests: z.number().int().min(1).max(100).default(30),
+      reviewRequired: z.boolean().default(true),
     },
   },
   (args) => call('/source-tools/monitor', args),
@@ -145,7 +156,7 @@ server.registerTool(
   'jobs_enrich',
   {
     description:
-      'Retrieve SmartRecruiters job details into an existing ATS card; 1 request maximum. execute=false by default.',
+      'Retrieve SmartRecruiters job details or check a Himalayas posting on its source; 1 request maximum. execute=false by default.',
     inputSchema: { jobId: z.string().min(1), execute: z.boolean().default(false) },
   },
   (args) => call('/source-tools/enrich', args),
@@ -193,6 +204,7 @@ server.registerTool(
       notes: z.string().max(30000).optional(),
       favorite: z.boolean().optional(),
       followUp: z.union([z.literal(''), z.iso.date()]).optional(),
+      availabilityVerification: availabilityVerificationSchema.optional(),
       aiScore: z.number().min(0).max(10).nullable().optional(),
       aiSummary: z.string().max(600).optional(),
       aiReason: z.string().max(10000).optional(),

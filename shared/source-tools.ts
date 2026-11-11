@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { locationMatch, professionalRole } from './job-fit.js';
+import { jobLocationMatch, professionalRole } from './job-fit.js';
 import { adzunaSearchSchema } from './adzuna.js';
 import { keywordTerms, type JobInput, type Profile } from './model.js';
 
@@ -11,6 +11,8 @@ export const providerIds = [
   'arbeitnow',
   'remotive',
   'jobicy',
+  'himalayas',
+  'jobtech',
   'adzuna',
   'serpapi',
   'jooble',
@@ -29,6 +31,8 @@ export const providerActivation: Record<ProviderId, string> = {
     'При поиске или обновлении рекомендаций с Remotive; также при ручном обновлении ленты. Не чаще одного сетевого запроса за 6 часов.',
   jobicy:
     'По запросу исследования или обновления вакансий с выбранным Jobicy. Один общий проход не чаще раза в час; cursor-страницы последовательно. Фонового расписания нет.',
+  himalayas: 'При явном поиске удалённых ролей по фразе и выбранным странам.',
+  jobtech: 'При явном поиске вакансий в Швеции по фразе.',
   greenhouse:
     'По запросу обновления подключённых досок компаний или мониторинга. Только добавленные и включённые доски; автоматического расписания нет.',
   lever:
@@ -61,7 +65,7 @@ export const providerCatalog: {
     description: 'Поиск по ключевым словам и рынку',
     docs: 'https://developer.adzuna.com/overview',
     credentials: ['ADZUNA_APP_ID', 'ADZUNA_APP_KEY'],
-    cost: '2 500 запросов / месяц · personal research',
+    cost: 'Локальный защитный лимит · условия в аккаунте Adzuna',
     ttlHours: 1,
   },
   {
@@ -88,7 +92,7 @@ export const providerCatalog: {
     id: 'arbeitnow',
     name: 'Arbeitnow',
     group: 'discovery',
-    description: 'Tech-вакансии · Германия (de) и Великобритания (gb)',
+    description: 'Tech-вакансии · Германия (DE), Великобритания (GB), Франция (FR)',
     docs: 'https://www.arbeitnow.com/blog/job-board-api',
     credentials: [],
     cost: 'Бесплатно · без ключа',
@@ -113,6 +117,26 @@ export const providerCatalog: {
     docs: 'https://jobicy.com/jobs-rss-feed',
     credentials: [],
     cost: 'Бесплатный public API · без ключа и карты · новый проход не чаще раза/час',
+    ttlHours: 1,
+  },
+  {
+    id: 'himalayas',
+    name: 'Himalayas',
+    group: 'discovery',
+    description: 'Удалённые роли · страны допуска и часовые пояса',
+    docs: 'https://himalayas.app/docs/remote-jobs-api',
+    credentials: [],
+    cost: 'Публичный API · общий лимит анонимных запросов',
+    ttlHours: 1,
+  },
+  {
+    id: 'jobtech',
+    name: 'JobTech JobSearch',
+    group: 'discovery',
+    description: 'Шведский рынок · объявления Platsbanken',
+    docs: 'https://data.arbetsformedlingen.se/dataservice/jobsearch/',
+    credentials: [],
+    cost: 'Публичный API · без ключа',
     ttlHours: 1,
   },
   {
@@ -201,6 +225,53 @@ export const webSources = [
   },
 ];
 const terms = z.array(z.string().trim().min(1).max(200)).max(30);
+const countryCode = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z]{2}$/);
+export const marketPresets = {
+  europe: ['es', 'pt', 'de', 'it', 'cy', 'fr', 'gb', 'se', 'no', 'dk'],
+  nordic: ['se', 'no', 'dk', 'fi'],
+} as const;
+export const adzunaMarkets = [
+  'gb',
+  'us',
+  'at',
+  'au',
+  'be',
+  'br',
+  'ca',
+  'ch',
+  'de',
+  'es',
+  'fr',
+  'in',
+  'it',
+  'mx',
+  'nl',
+  'nz',
+  'pl',
+  'sg',
+  'za',
+] as const;
+const englishRole = /\b(?:analyst|analytics|data scientist|decision scientist)\b/i;
+const russianRole = /(?:аналитик|дата[ -]сайентист)/iu;
+export function hasReviewableTitle(title: string) {
+  return englishRole.test(title) || russianRole.test(title);
+}
+export function defaultDiscoveryQueries(profile?: Profile) {
+  const groups: Record<string, string[]> = {
+    product_analytics: ['product analyst', 'продуктовый аналитик'],
+    data_analytics: ['data analyst', 'аналитик данных'],
+    decision_science: ['data scientist', 'decision scientist'],
+    analytics_lead: ['analytics lead', 'руководитель аналитики'],
+  };
+  const families = profile?.selection?.roleFamilies;
+  return families?.length
+    ? families.flatMap((family) => groups[family] ?? [])
+    : groups.product_analytics;
+}
 export const searchSchema = z.object({
   scenarioId: z
     .string()
@@ -238,6 +309,7 @@ export const searchSchema = z.object({
     .toLowerCase()
     .regex(/^[a-z]{2}$|^$/)
     .default(''),
+  countries: z.array(countryCode).max(15).default([]),
   location: z.string().trim().max(200).default(''),
   maxAgeDays: z.number().int().min(1).max(365).optional(),
   includeUnknownDate: z.boolean().default(true),
@@ -246,6 +318,7 @@ export const searchSchema = z.object({
   maxItems: z.number().int().min(1).max(500).default(100),
   execute: z.boolean().default(false),
   store: z.boolean().default(false),
+  reviewRequired: z.boolean().default(true),
 });
 export type SearchInput = z.infer<typeof searchSchema>;
 export function resolveFilters(input: SearchInput, profile?: Profile) {
@@ -260,8 +333,19 @@ export function resolveFilters(input: SearchInput, profile?: Profile) {
     salaryPeriod: input.salaryPeriod ?? profile?.salaryPeriod ?? 'year',
   };
 }
-export function acceptsJob(job: JobInput, input: SearchInput, profile?: Profile) {
+export function acceptsJob(
+  job: JobInput,
+  input: SearchInput,
+  profile?: Profile,
+  discoveryReview = false,
+) {
   const f = resolveFilters(input, profile);
+  if (
+    job.sourceRemoved ||
+    (job.applicationDeadline && Date.parse(job.applicationDeadline) < Date.now())
+  )
+    return false;
+  if (discoveryReview && !hasReviewableTitle(job.title)) return false;
   const haystack = [job.title, job.company, job.description, ...job.tags].join(' ').toLowerCase();
   // Keyword groups are discovery alternatives; | separates synonyms within a group.
   if (
@@ -273,6 +357,7 @@ export function acceptsJob(job: JobInput, input: SearchInput, profile?: Profile)
   if (f.exclude.some((k) => keywordTerms(k).some((t) => haystack.includes(t.toLowerCase()))))
     return false;
   if (
+    !discoveryReview &&
     profile?.selection &&
     professionalRole(job, { ...profile, seniority: f.seniority }) === 'excluded'
   )
@@ -280,7 +365,7 @@ export function acceptsJob(job: JobInput, input: SearchInput, profile?: Profile)
   if (
     f.locations.length &&
     (profile?.selection
-      ? locationMatch(job.location, f.locations) === 'mismatch'
+      ? jobLocationMatch(job, f.locations) === 'mismatch'
       : !f.locations.some((l) => job.location.toLowerCase().includes(l.toLowerCase())))
   )
     return false;
@@ -308,8 +393,9 @@ export function acceptsJob(job: JobInput, input: SearchInput, profile?: Profile)
   )
     return false;
   if (input.maxAgeDays) {
-    if (!job.publishedAt) return input.includeUnknownDate;
-    if (Date.parse(job.publishedAt) < Date.now() - input.maxAgeDays * 86400000) return false;
+    const date = job.publishedAt || job.sourceUpdatedAt;
+    if (!date) return input.includeUnknownDate;
+    if (Date.parse(date) < Date.now() - input.maxAgeDays * 86400000) return false;
   }
   return true;
 }
