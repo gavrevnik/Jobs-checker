@@ -13,7 +13,7 @@ export function companyJobMaterials(
     .filter((job) => job.companyId === companyId && job.description.trim())
     .map((job) => {
       const availability = jobAvailability(job, observations, now, sources);
-      const historical = availability.state !== 'open';
+      const historical = job.stage === 'archived' || availability.state !== 'open';
       return {
         origin: 'saved_ats' as const,
         // Keep source content, not personal notes, AI conclusions or CRM history.

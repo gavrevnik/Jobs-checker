@@ -15,6 +15,7 @@ import {
   targetVacancyContract,
   type JobPresence,
 } from '../shared/target-vacancies.js';
+import { jobReviewCategory, pipelineSection } from '../shared/job-pipeline.js';
 import { locateJob } from '../src/analytics.js';
 
 function boardUrl(source: Source) {
@@ -42,9 +43,10 @@ export function companyTargetVacancies(
   scenario?: Scenario,
   research: StoredObservation[] = [],
 ) {
-  const matching = allJobs.filter(
+  const companyJobs = allJobs.filter((job) => job.companyId === companyId);
+  const matching = companyJobs.filter(
     (j) =>
-      j.companyId === companyId &&
+      jobReviewCategory(j) !== 'reject' &&
       targetLevel(j, profile) &&
       (!profile ||
         acceptsJob(
@@ -61,75 +63,87 @@ export function companyTargetVacancies(
     const key = job.url ? canonicalUrl(job.url) : job.id;
     grouped.set(key, [...(grouped.get(key) || []), job]);
   }
-  const jobs = [...grouped.values()]
-    .map((copies) => {
-      const ranked = copies
-        .map((j) => ({ j, availability: jobAvailability(j, observations, now, allSources) }))
-        .sort(
-          (a, b) =>
-            (Date.parse(b.availability.verifiedAt) || 0) -
-              (Date.parse(a.availability.verifiedAt) || 0) ||
-            Number(b.availability.state === 'closed') - Number(a.availability.state === 'closed') ||
-            (Date.parse(b.availability.checkedAt) || 0) -
-              (Date.parse(a.availability.checkedAt) || 0),
-        );
-      const { j } = ranked[0];
-      const checkedAt =
-        ranked
-          .map((r) => r.availability.checkedAt)
-          .filter(Boolean)
-          .sort((a, b) => Date.parse(a) - Date.parse(b))
-          .at(-1) || '';
-      const official = ranked[0].availability;
-      const state =
-        official.state === 'open' || official.state === 'closed'
-          ? official.state
-          : ranked.every((r) => r.availability.state === 'stale')
-            ? ('stale' as const)
-            : !checkedAt ||
-                Date.parse(checkedAt) >= now - targetVacancyContract.openWithinDays * 86400000
-              ? ('unverified' as const)
-              : ('stale' as const);
-      const availability = { ...official, state, checkedAt };
-      return {
-        ...j,
-        atsJobIds: copies.map((c) => c.id),
-        targetLevel: targetLevel(j, profile)!,
-        availability,
-        scenarioFit: scenarioFit(j, scenario, research),
-        openCityIds: copies
-          .filter(
-            (c) =>
-              availability.state === 'open' &&
-              jobAvailability(c, observations, now, allSources).state === 'open',
-          )
-          .flatMap((c) => locateJob(c.location))
-          .filter((p) => p.kind === 'city')
-          .map((p) => p.id),
-        unverifiedCityIds: copies
-          .filter(
-            (c) =>
-              availability.state === 'unverified' &&
-              jobAvailability(c, observations, now, allSources).state === 'unverified',
-          )
-          .flatMap((c) => locateJob(c.location))
-          .filter((p) => p.kind === 'city')
-          .map((p) => p.id),
-        cities: [
-          ...new Map(
-            copies
-              .flatMap((c) => locateJob(c.location))
-              .filter((p) => p.kind === 'city')
-              .map((p) => [p.id, { id: p.id, name: p.name, country: p.code }]),
-          ).values(),
-        ],
-      };
-    })
-    .sort(
-      (a, b) =>
-        Number(b.availability.state === 'open') - Number(a.availability.state === 'open') ||
-        a.title.localeCompare(b.title),
-    );
+  const project = (groups: Job[][]) =>
+    groups
+      .map((copies) => {
+        const ranked = copies
+          .map((j) => ({ j, availability: jobAvailability(j, observations, now, allSources) }))
+          .sort(
+            (a, b) =>
+              (Date.parse(b.availability.verifiedAt) || 0) -
+                (Date.parse(a.availability.verifiedAt) || 0) ||
+              Number(b.availability.state === 'closed') -
+                Number(a.availability.state === 'closed') ||
+              (Date.parse(b.availability.checkedAt) || 0) -
+                (Date.parse(a.availability.checkedAt) || 0),
+          );
+        const { j } = ranked[0];
+        const checkedAt =
+          ranked
+            .map((r) => r.availability.checkedAt)
+            .filter(Boolean)
+            .sort((a, b) => Date.parse(a) - Date.parse(b))
+            .at(-1) || '';
+        const official = ranked[0].availability;
+        const state =
+          official.state === 'open' || official.state === 'closed'
+            ? official.state
+            : ranked.every((r) => r.availability.state === 'stale')
+              ? ('stale' as const)
+              : !checkedAt ||
+                  Date.parse(checkedAt) >= now - targetVacancyContract.openWithinDays * 86400000
+                ? ('unverified' as const)
+                : ('stale' as const);
+        const availability = { ...official, state, checkedAt };
+        return {
+          ...j,
+          atsJobIds: copies.map((c) => c.id),
+          targetLevel:
+            targetLevel(j, profile) ?? (j.seniority === 'unknown' ? 'review' : j.seniority),
+          availability,
+          scenarioFit: scenarioFit(j, scenario, research),
+          openCityIds: copies
+            .filter(
+              (c) =>
+                availability.state === 'open' &&
+                jobAvailability(c, observations, now, allSources).state === 'open',
+            )
+            .flatMap((c) => locateJob(c.location))
+            .filter((p) => p.kind === 'city')
+            .map((p) => p.id),
+          unverifiedCityIds: copies
+            .filter(
+              (c) =>
+                availability.state === 'unverified' &&
+                jobAvailability(c, observations, now, allSources).state === 'unverified',
+            )
+            .flatMap((c) => locateJob(c.location))
+            .filter((p) => p.kind === 'city')
+            .map((p) => p.id),
+          cities: [
+            ...new Map(
+              copies
+                .flatMap((c) => locateJob(c.location))
+                .filter((p) => p.kind === 'city')
+                .map((p) => [p.id, { id: p.id, name: p.name, country: p.code }]),
+            ).values(),
+          ],
+        };
+      })
+      .sort(
+        (a, b) =>
+          Number(b.availability.state === 'open') - Number(a.availability.state === 'open') ||
+          a.title.localeCompare(b.title),
+      );
+  const jobs = project([...grouped.values()]);
+  const fullList = project(companyJobs.map((job) => [job]));
+  const workingJobs = fullList.filter(
+    (job) => pipelineSection(job, job.availability) === 'working',
+  );
+  const historyJobs = fullList.filter((job) => {
+    const section = pipelineSection(job, job.availability);
+    return section === 'history' || section === 'review';
+  });
   const offices = new Map<
     string,
     { id: string; name: string; country: string; open: boolean; unverified: boolean }
@@ -211,7 +225,11 @@ export function companyTargetVacancies(
       : targetVacancyContract,
     companyId,
     total: jobs.length,
-    practice: jobs.filter((j) => j.discoveryAssessment?.category === 'practice').length,
+    practice: jobs.filter((j) => jobReviewCategory(j) === 'practice').length,
+    workingJobs,
+    historyJobs,
+    workingJobIds: workingJobs.map((j) => j.id),
+    workingOpen: workingJobs.length,
     open: jobs.filter((j) => j.availability.state === 'open').length,
     closed: jobs.filter((j) => j.availability.state === 'closed').length,
     unverified: jobs.filter((j) => j.availability.state === 'unverified').length,

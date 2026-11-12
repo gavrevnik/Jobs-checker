@@ -1120,6 +1120,23 @@ h1 {
 .standalone-toolbar > span:last-child {
   margin-left: auto;
 }
+.pipeline-view,
+.pipeline-scope {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pipeline-company-link {
+  font-size: inherit;
+  text-align: left;
+}
+.company-vacancy-navigation {
+  margin-bottom: 18px;
+}
+.detail-availability {
+  font-size: 12px;
+}
 .company-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1247,7 +1264,7 @@ h1 {
 }
 .kanban {
   display: grid;
-  grid-template-columns: repeat(6, minmax(210px, 1fr));
+  grid-template-columns: repeat(5, minmax(210px, 1fr));
   gap: 13px;
   overflow-x: auto;
   padding-bottom: 16px;
@@ -1309,6 +1326,11 @@ h1 {
   font-size: 8px;
   color: #b9b296;
   margin-top: 3px;
+}
+.kanban-card .pipeline-job-status {
+  color: #4f725d;
+  font-size: 10px;
+  line-height: 1.4;
 }
 .kanban-card .job-title {
   font-size: 12px;
@@ -2377,7 +2399,7 @@ h1 {
     font-size: 9px;
   }
   .kanban {
-    grid-template-columns: repeat(6, 225px);
+    grid-template-columns: repeat(5, 225px);
   }
 }
 @media (max-width: 740px) {

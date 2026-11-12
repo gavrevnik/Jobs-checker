@@ -12,6 +12,7 @@ import { TargetVacancySourcesModal } from './TargetVacancySourcesModal';
 import { ComparisonColumnGuide, type GuideColumn } from './ComparisonColumnGuide';
 import { companyPresentation } from './company-presentation';
 import { companySizeLabels } from '../shared/model';
+import { pipelineSection } from '../shared/job-pipeline';
 import { TargetVacanciesModal } from './TargetVacanciesModal';
 import { CompanyHiringLinks } from './CompanyHiringLinks';
 import { CompanyColumnModal } from './CompanyColumnModal';
@@ -41,6 +42,14 @@ import {
   uncoveredAvailabilityFacts,
 } from './company-comparison';
 type Profile = ReturnType<CompanyResearch['profile']>;
+function workingOffices(profile: Profile) {
+  const cities = profile.targetVacancies.workingJobs.flatMap((job) =>
+    job.cities.filter((city) => job.openCityIds.includes(city.id)),
+  );
+  return [...new Map(cities.map((city) => [city.id, city])).values()].sort((a, b) =>
+    a.name.localeCompare(b.name, 'ru'),
+  );
+}
 const label: Record<string, string> = {
   pass: '✓',
   fail: '✗',
@@ -70,6 +79,7 @@ export function CompanyComparisonPage({
   companyRevision,
   onJob,
   onJobs,
+  onPipeline,
   expanded,
   onExpandedChange,
 }: {
@@ -83,6 +93,7 @@ export function CompanyComparisonPage({
   companyRevision: string;
   onJob: (id: string) => void;
   onJobs: (companyId: string, ids: string[]) => void;
+  onPipeline: (companyId: string) => void;
 }) {
   const [data, setData] = useState<Profile[]>([]),
     [query, setQuery] = useState('');
@@ -167,7 +178,7 @@ export function CompanyComparisonPage({
             comparisonModeMatches(p, mode) &&
             verdictMatch('A04_RELOCATION', relocation) &&
             verdictMatch('A04', visa) &&
-            (!hasJobs || p.targetVacancies.open > 0) &&
+            (!hasJobs || p.targetVacancies.workingOpen > 0) &&
             comparisonScoreMatches(p.fit.score, minScore) &&
             (companySize === 'all' || p.company.sizeCategory === companySize) &&
             (status === 'all' || p.researchStatus === status) &&
@@ -197,7 +208,7 @@ export function CompanyComparisonPage({
               : sort === 'name'
                 ? p.company.name
                 : sort === 'jobs'
-                  ? p.targetVacancies.open
+                  ? p.targetVacancies.workingOpen
                   : sort === 'coverage'
                     ? p.scores[section].coverage
                     : sort === 'pass'
@@ -232,16 +243,33 @@ export function CompanyComparisonPage({
       descending,
     ],
   );
-  const offices = useMemo(
-    () => comparisonHiringOffices(filteredProfiles, !hasJobs),
+  const officeProfiles = useMemo(
+    () =>
+      hasJobs
+        ? filteredProfiles.map((p) => ({
+            ...p,
+            targetVacancies: {
+              ...p.targetVacancies,
+              offices: workingOffices(p).map((city) => ({
+                ...city,
+                open: true,
+                unverified: false,
+              })),
+            },
+          }))
+        : filteredProfiles,
     [filteredProfiles, hasJobs],
+  );
+  const offices = useMemo(
+    () => comparisonHiringOffices(officeProfiles, !hasJobs),
+    [officeProfiles, hasJobs],
   );
   const selectedOffice = data
     .flatMap((p) => p.targetVacancies.offices)
     .find((o) => o.id === office);
   const rows = useMemo(
-    () => filteredProfiles.filter((p) => comparisonHiringOfficeMatches(p, office, !hasJobs)),
-    [filteredProfiles, office, hasJobs],
+    () => officeProfiles.filter((p) => comparisonHiringOfficeMatches(p, office, !hasJobs)),
+    [officeProfiles, office, hasJobs],
   );
   const visibleSections = new Set<string>();
   useEffect(() => {
@@ -388,7 +416,7 @@ export function CompanyComparisonPage({
               checked={hasJobs}
               onChange={(e) => setHasJobs(e.target.checked)}
             />
-            Есть подтверждённые вакансии
+            Есть вакансии в воронке
           </label>
           <button
             className="button comparison-more-button"
@@ -567,9 +595,9 @@ export function CompanyComparisonPage({
                   <button
                     className="comparison-heading-button"
                     onClick={() => setTargetSourcesOpen(true)}
-                    aria-label="Целевые вакансии: источники и лимиты"
+                    aria-label="Вакансии компании: источники и лимиты"
                   >
-                    Целевые вакансии
+                    Вакансии
                   </button>
                 </th>
                 <th>
@@ -607,6 +635,10 @@ export function CompanyComparisonPage({
                 const infrastructureData = companyInfrastructure(p.observations);
                 const infrastructure = infrastructureData.tags;
                 const screening = companyScreening(p);
+                const historyCount = p.targetVacancies.historyJobs.filter(
+                  (job) => pipelineSection(job, job.availability) === 'history',
+                ).length;
+                const reviewCount = p.targetVacancies.historyJobs.length - historyCount;
                 const updatedAt = [p.lastResearchAt, p.jobsCheckedAt]
                   .filter((date) => date && Number.isFinite(Date.parse(date)))
                   .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
@@ -742,16 +774,20 @@ export function CompanyComparisonPage({
                     <td>
                       <button
                         className="comparison-target-cell"
-                        aria-label={`Целевые вакансии: ${p.company.name}`}
+                        aria-label={`Вакансии компании: ${p.company.name}`}
                         onClick={() => setTargetCompany({ id: p.company.id, name: p.company.name })}
                       >
                         <strong className="target-open">
-                          Подтверждены {p.targetVacancies.open}
+                          В воронке {p.targetVacancies.workingOpen}
                         </strong>
                         <span className="comparison-offices-line">
                           <span className="comparison-offices-label">Офисы найма: </span>
-                          {p.targetVacancies.openOffices.map((city) => city.name).join(', ') || '—'}
+                          {workingOffices(p)
+                            .map((city) => city.name)
+                            .join(', ') || '—'}
                         </span>
+                        <span>В истории {historyCount}</span>
+                        <span>На проверке {reviewCount}</span>
                         <strong className="target-closed">
                           Закрытые {p.targetVacancies.closed}
                         </strong>
@@ -780,6 +816,11 @@ export function CompanyComparisonPage({
                           </span>
                         )}
                       </button>
+                      {p.targetVacancies.workingOpen > 0 && (
+                        <button className="text-link" onClick={() => onPipeline(p.company.id)}>
+                          В воронку
+                        </button>
+                      )}
                       <CompanyHiringLinks company={p.company} />
                       <FactChips
                         tags={screening.focus}
@@ -1048,6 +1089,7 @@ export function CompanyComparisonPage({
           close={closeTargets}
           onJob={onJob}
           onJobs={onJobs}
+          onPipeline={onPipeline}
         />
       )}
       {targetSourcesOpen && <TargetVacancySourcesModal close={() => setTargetSourcesOpen(false)} />}

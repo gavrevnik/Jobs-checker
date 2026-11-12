@@ -10,6 +10,8 @@
 
 `POST /api/source-tools/search-review` принимает `{batchId}` для чтения необработанных кандидатов или `{batchId,decisions:[...]}` для применения решений. Для решения нужны `candidateId`, `category` (`target`, `practice`, `reject`), `language` (`en`, `ru`, `other`, `unknown`) и `reason`. Для сохранения требуются `roleFamily` из профиля, язык `en` или `ru` и `quote` из описания. Допустимы `companyId` проверенного работодателя, `officialDescription:{url,text}`, `uncertainties:[]` и `availabilityVerification` официальной страницы. Частичный ответ оставляет остальные вакансии в пакете. Пакет доступен 24 часа при том же профиле; запись не обращается к провайдерам. В карточке вакансии сохраняется `discoveryAssessment`.
 
+`POST /api/jobs/review` записывает содержательную оценку сохранённых вакансий пачкой `{reviews:[{id,expectedUpdatedAt,category,reason}]}`. Категории: `target`, `practice`, `reject`, `uncertain`. При конфликте версии пачка не применяется. Этап, заметки и подтверждение открытости сохраняются отдельно. `/api/state` возвращает `jobAvailability` и `workingJobIds`, а `targetVacancies` в сравнении — `workingJobs`, `historyJobs` и `workingOpen`. Рабочая выборка включает только принятые роли с подтверждённой открытостью вне архива.
+
 Базовый адрес: `http://127.0.0.1:4317/api`. Для записи обязателен `Content-Type: application/json`. Чужие Origin и Host отклоняются. Нет CORS-доступа из сторонних сайтов. Авторизация не нужна: сервер предназначен для одного пользователя на loopback.
 
 | Метод  | Путь              | Назначение                                                   |

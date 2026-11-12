@@ -182,14 +182,23 @@ export class SearchReviews {
           scenarioId: profile?.selection?.scenarioId || '',
           profileVersion: profile?.selection?.version,
         };
+        const officialUrl = decision.availabilityVerification?.url;
         for (const [index, origin] of origins.entries()) {
-          const duplicate = company && this.store.findDuplicate(job, origin.sourceId);
+          const duplicate =
+            this.store.findDuplicate(job, origin.sourceId) ??
+            (officialUrl ? this.store.findDuplicate({ ...job, url: officialUrl }) : undefined);
           if (company && duplicate && duplicate.companyId !== company.id)
             throw new Error('Эта вакансия уже связана с другой компанией');
           const result = this.store.ingestJobs(
             [
               {
                 ...job,
+                url: duplicate?.url || job.url,
+                description: job.description || description,
+                applicationUrl:
+                  decision.availabilityVerification?.state === 'open'
+                    ? officialUrl
+                    : job.applicationUrl,
                 company: company?.name ?? job.company,
                 externalId: origin.externalId,
                 discoveryAssessment,
@@ -208,7 +217,12 @@ export class SearchReviews {
               this.store.updateJob(result.ids[0], {
                 discoveryAssessment,
                 ...(decision.availabilityVerification
-                  ? { availabilityVerification: decision.availabilityVerification }
+                  ? {
+                      availabilityVerification: decision.availabilityVerification,
+                      ...(decision.availabilityVerification.state === 'open'
+                        ? { applicationUrl: officialUrl }
+                        : {}),
+                    }
                   : {}),
               });
             saved.push({ candidateId: candidate.id, atsId: result.ids[0] });

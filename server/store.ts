@@ -12,6 +12,7 @@ import { dirname } from 'node:path';
 import {
   canonicalUrl,
   companySchema,
+  catalogReviewSchema,
   jobSchema,
   profileSchema,
   sourceSchema,
@@ -29,6 +30,8 @@ import {
   discoveryHistorySchema,
   type DiscoveryReview,
 } from '../shared/discovery-review.js';
+import { jobAvailability } from '../shared/target-vacancies.js';
+import { pipelineSection } from '../shared/job-pipeline.js';
 import type { SourceRun } from '../shared/source-tools.js';
 
 const importedJob = jobSchema.safeExtend({
@@ -228,7 +231,11 @@ export class Store {
     return row
       ? this.decode<Job>('jobs', row.data as string)
       : url
-        ? this.list<Job>('jobs').find((j) => j.url && canonicalUrl(j.url) === url)
+        ? this.list<Job>('jobs').find(
+            (j) =>
+              (j.url && canonicalUrl(j.url) === url) ||
+              (j.availabilityVerification && canonicalUrl(j.availabilityVerification.url) === url),
+          )
         : undefined;
   }
   writeJob(job: Job) {
@@ -273,6 +280,7 @@ export class Store {
           aiProfileId: old.aiProfileId,
           aiReviewedAt: old.aiReviewedAt,
           aiEvidenceUrls: old.aiEvidenceUrls,
+          catalogReview: old.catalogReview,
           favorite: old.favorite,
           followUp: old.followUp,
           history: old.history,
@@ -524,14 +532,71 @@ export class Store {
       )
       .all(...(jobId ? [jobId] : []));
   }
+  reviewSavedJobs(input: unknown) {
+    const { reviews } = z
+      .object({
+        reviews: z
+          .array(
+            z.object({
+              id: z.string().uuid(),
+              expectedUpdatedAt: z.iso.datetime(),
+              category: catalogReviewSchema.shape.category,
+              reason: catalogReviewSchema.shape.reason,
+            }),
+          )
+          .min(1)
+          .max(500),
+      })
+      .parse(input);
+    const profileVersion = this.selection.read().coreVersion;
+    const reviewedAt = stamp();
+    return this.transaction(() => {
+      const ids = new Set<string>();
+      for (const { id, expectedUpdatedAt, category, reason } of reviews) {
+        if (ids.has(id)) throw new Error('Вакансия повторяется в пакете оценки');
+        const job = this.get<Job>('jobs', id);
+        if (!job || job.updatedAt !== expectedUpdatedAt)
+          throw new Error(`Вакансия изменилась после чтения: ${id}`);
+        ids.add(id);
+        this.writeJob({
+          ...job,
+          updatedAt: reviewedAt,
+          catalogReview: { category, reason, reviewedAt, profileVersion },
+        });
+      }
+      return { reviewed: ids.size };
+    });
+  }
   state() {
+    const jobs = this.list<Job>('jobs');
+    const companies = this.list<Company>('companies');
+    const sources = this.list<Source>('sources');
+    const observations = this.observations().map((o) => ({
+      jobId: String(o.jobId),
+      sourceId: String(o.sourceId),
+      lastSeenAt: String(o.lastSeenAt),
+      missingCount: Number(o.missingCount),
+    }));
+    const now = Date.now();
+    const availability = Object.fromEntries(
+      jobs.map((job) => [job.id, jobAvailability(job, observations, now, sources)]),
+    );
+    const companiesById = new Set(companies.map((company) => company.id));
     return {
       selection: this.selection.read(),
       effectiveProfile: this.selection.profile(),
-      jobs: this.list<Job>('jobs'),
-      companies: this.list<Company>('companies'),
+      jobs,
+      companies,
       profiles: this.list<Profile>('profiles'),
-      sources: this.list<Source>('sources'),
+      sources,
+      jobAvailability: availability,
+      workingJobIds: jobs
+        .filter(
+          (job) =>
+            companiesById.has(job.companyId) &&
+            pipelineSection(job, availability[job.id]) === 'working',
+        )
+        .map((job) => job.id),
       adzunaConfigured: !!(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY),
     };
   }

@@ -4,8 +4,9 @@ import { Modal } from './components';
 import { api } from './api';
 import { shortSentences } from './company-presentation';
 import type { ComparisonProfile } from './company-comparison';
-import type { Company } from '../shared/model';
+import { stageLabels, type Company } from '../shared/model';
 import { availabilityLabels } from '../shared/target-vacancies';
+import { jobReviewCategory, pipelineSection } from '../shared/job-pipeline';
 import { CompanyHiringLinks } from './CompanyHiringLinks';
 
 const checkedDate = (value: string) =>
@@ -20,16 +21,19 @@ export function TargetVacanciesModal({
   close,
   onJob,
   onJobs,
+  onPipeline,
 }: {
   companyId: string;
   name: string;
   close: () => void;
   onJob: (id: string) => void;
   onJobs: (companyId: string, ids: string[]) => void;
+  onPipeline: (companyId: string) => void;
 }) {
   const [data, setData] = useState<ComparisonProfile['targetVacancies'] | null>(null);
   const [error, setError] = useState('');
   const [company, setCompany] = useState<Company | null>(null);
+  const [view, setView] = useState<'working' | 'history' | 'review'>('working');
   useEffect(() => {
     let active = true;
     void api<ComparisonProfile>(`/company-research/${encodeURIComponent(companyId)}`)
@@ -46,8 +50,40 @@ export function TargetVacanciesModal({
       active = false;
     };
   }, [companyId]);
+  const working = data?.workingJobs ?? [];
+  const history = (data?.historyJobs ?? []).filter(
+    (job) => pipelineSection(job, job.availability) === 'history',
+  );
+  const review = (data?.historyJobs ?? []).filter(
+    (job) => pipelineSection(job, job.availability) === 'review',
+  );
+  const views = [
+    {
+      id: 'working',
+      jobs: working,
+      label: 'В воронке',
+      help: 'Вакансии прошли оценку, их открытость подтверждена. Этап можно изменить в карточке или в воронке.',
+      empty: 'Открытых вакансий для воронки пока нет.',
+    },
+    {
+      id: 'history',
+      jobs: history,
+      label: 'История',
+      help: 'Закрытые и архивные вакансии компании.',
+      empty: 'В истории пока нет вакансий.',
+    },
+    {
+      id: 'review',
+      jobs: review,
+      label: 'На проверке',
+      help: 'Вакансии, для которых ещё нужно оценить релевантность или подтвердить открытость.',
+      empty: 'На проверке пока нет вакансий.',
+    },
+  ] as const;
+  const current = views.find((item) => item.id === view) ?? views[0];
+  const jobs = current.jobs;
   return (
-    <Modal title={`${name} · Целевые вакансии`} close={close} wide>
+    <Modal title={`${name} · Вакансии`} close={close} wide>
       <div className="target-vacancies-modal">
         {error ? (
           <p role="alert">{error}</p>
@@ -56,97 +92,112 @@ export function TargetVacanciesModal({
         ) : (
           <>
             <div className="target-vacancies-heading">
-              <span>Всего найдено {data.total}</span>
-              <strong className="target-open">Подтверждены {data.open}</strong>
-              <strong className="target-closed">Закрытые {data.closed}</strong>
-              <span>Не подтверждены {data.unverified}</span>
-              <span>Устарели {data.stale}</span>
+              {views.map((item) => (
+                <button
+                  className={`button ${view === item.id ? 'primary' : 'secondary'}`}
+                  key={item.id}
+                  aria-pressed={view === item.id}
+                  onClick={() => setView(item.id)}
+                >
+                  {item.label} ({item.jobs.length})
+                </button>
+              ))}
               <button
-                className="button"
-                disabled={!data.jobIds.length}
+                className="text-link"
+                disabled={!data.workingOpen}
                 onClick={() => {
                   close();
-                  onJobs(companyId, data.jobIds);
+                  onPipeline(companyId);
+                }}
+              >
+                В воронку
+              </button>
+              <button
+                className="button"
+                disabled={!jobs.length}
+                onClick={() => {
+                  close();
+                  onJobs(
+                    companyId,
+                    jobs.flatMap((job) => job.atsJobIds),
+                  );
                 }}
               >
                 Показать в ATS
               </button>
             </div>
-            <p className="target-vacancies-help">
-              Подтверждены — найдены на официальном Careers или ATS за последние 30 дней. Свежие
-              результаты агрегаторов остаются кандидатами с неподтверждённой открытостью. Устаревшие
-              — без свежих наблюдений. Закрытые — по официальной проверке или двум отсутствиям в
-              полном снимке официальной доски. Архив в ATS — личный этап воронки.
-            </p>
-            {data.jobs.length ? (
+            <p className="target-vacancies-help">{current.help}</p>
+            {jobs.length ? (
               <ul className="target-vacancy-list">
-                {data.jobs.map((job) => (
-                  <li key={job.id}>
-                    <div className="target-vacancy-title">
-                      <button
-                        className="comparison-name"
-                        onClick={() => {
-                          close();
-                          onJob(job.id);
-                        }}
-                      >
-                        {job.title}
-                      </button>
-                      {job.url && (
-                        <a
-                          href={job.applicationUrl || job.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          aria-label={`Сайт вакансии: ${job.title}`}
+                {jobs.map((job) => {
+                  const category = jobReviewCategory(job);
+                  return (
+                    <li key={job.id}>
+                      <div className="target-vacancy-title">
+                        <button
+                          className="comparison-name"
+                          onClick={() => {
+                            close();
+                            onJob(job.id);
+                          }}
                         >
-                          <ExternalLink size={15} />
-                        </a>
-                      )}
-                    </div>
-                    <small>
-                      {job.discoveryAssessment &&
-                        (job.discoveryAssessment.category === 'practice'
-                          ? 'Для тренировки · '
-                          : 'Целевая роль · ')}
-                      {job.source === 'himalayas' && 'Himalayas · '}
-                      {job.location || '—'} ·{' '}
-                      {job.targetLevel === 'review' ? 'Уровень уточнить' : job.targetLevel} ·{' '}
-                      <span className={job.availability.state === 'open' ? 'target-open' : ''}>
-                        {availabilityLabels[job.availability.state]}
-                      </span>{' '}
-                      · наблюдение {checkedDate(job.availability.checkedAt)}
-                      {job.availability.verifiedAt && (
-                        <> · официальная проверка {checkedDate(job.availability.verifiedAt)}</>
-                      )}
-                      {job.availability.verificationUrl && (
-                        <>
-                          {' '}
-                          ·{' '}
+                          {job.title}
+                        </button>
+                        {job.url && (
                           <a
-                            href={job.availability.verificationUrl}
+                            href={job.applicationUrl || job.url}
                             target="_blank"
                             rel="noreferrer"
+                            aria-label={`Сайт вакансии: ${job.title}`}
                           >
-                            Основание
+                            <ExternalLink size={15} />
                           </a>
-                        </>
+                        )}
+                      </div>
+                      <small>
+                        {category === 'practice' && 'Для тренировки · '}
+                        {category === 'target' && 'Целевая роль · '}
+                        {category === 'uncertain' && 'Нужна оценка · '}
+                        {stageLabels[job.stage]} · {job.source === 'himalayas' && 'Himalayas · '}
+                        {job.location || '—'} ·{' '}
+                        {job.targetLevel === 'review' ? 'Уровень уточнить' : job.targetLevel} ·{' '}
+                        <span className={job.availability.state === 'open' ? 'target-open' : ''}>
+                          {availabilityLabels[job.availability.state]}
+                        </span>{' '}
+                        · наблюдение {checkedDate(job.availability.checkedAt)}
+                        {job.availability.verifiedAt && (
+                          <> · официальная проверка {checkedDate(job.availability.verifiedAt)}</>
+                        )}
+                        {job.availability.verificationUrl && (
+                          <>
+                            {' '}
+                            ·{' '}
+                            <a
+                              href={job.availability.verificationUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Основание
+                            </a>
+                          </>
+                        )}
+                      </small>
+                      {job.scenarioFit.status !== 'not_selected' && (
+                        <p className="scenario-job-status">
+                          {job.scenarioFit.label}
+                          {[...job.scenarioFit.blockers, ...job.scenarioFit.questions].length
+                            ? ': ' +
+                              [...job.scenarioFit.blockers, ...job.scenarioFit.questions].join('; ')
+                            : ''}
+                        </p>
                       )}
-                    </small>
-                    {job.scenarioFit.status !== 'not_selected' && (
-                      <p className="scenario-job-status">
-                        {job.scenarioFit.label}
-                        {[...job.scenarioFit.blockers, ...job.scenarioFit.questions].length
-                          ? ': ' +
-                            [...job.scenarioFit.blockers, ...job.scenarioFit.questions].join('; ')
-                          : ''}
-                      </p>
-                    )}
-                    <p>{shortSentences(job.description, 2, 350) || '—'}</p>
-                  </li>
-                ))}
+                      <p>{shortSentences(job.description, 2, 350) || '—'}</p>
+                    </li>
+                  );
+                })}
               </ul>
             ) : (
-              <p>—</p>
+              <p>{current.empty}</p>
             )}
             <section className="checked-sources" aria-labelledby="checked-sources-title">
               <h3 id="checked-sources-title">Список проверенных источников</h3>

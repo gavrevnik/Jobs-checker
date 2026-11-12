@@ -51,6 +51,8 @@ import {
   type State,
 } from '../shared/model';
 import { api, date } from './api';
+import { availabilityLabels } from '../shared/target-vacancies';
+import { jobReviewCategory, pipelineSection } from '../shared/job-pipeline';
 import { SourcesPage } from './SourcesPage';
 import { ResourcesPage, type ResourceTab } from './ResourcesPage';
 const AnalyticsPage = lazy(() =>
@@ -79,6 +81,9 @@ const CompanyDetails = lazy(() =>
 const CompanyComparisonPage = lazy(() =>
   import('./CompanyComparisonPage').then((m) => ({ default: m.CompanyComparisonPage })),
 );
+const TargetVacanciesModal = lazy(() =>
+  import('./TargetVacanciesModal').then((m) => ({ default: m.TargetVacanciesModal })),
+);
 import { ProfileSettingsModal } from './ProfileSettingsModal';
 import './selection.css';
 type Page =
@@ -95,6 +100,7 @@ type Dialog =
   | { kind: 'job'; item?: Job }
   | { kind: 'company'; item?: Company }
   | { kind: 'companyDetail'; id: string }
+  | { kind: 'companyJobs'; id: string }
   | { kind: 'profile'; item?: Profile }
   | { kind: 'source'; company?: string }
   | { kind: 'import' }
@@ -117,6 +123,15 @@ const blank: State = {
   sources: [],
   adzunaConfigured: false,
 };
+const reviewLabels = {
+  target: 'Целевая роль',
+  practice: 'Для тренировки',
+  reject: 'Не подходит',
+  uncertain: 'Нужна проверка',
+};
+
+const pipelineStages = stages.filter((stage) => stage !== 'archived');
+
 function readStorage(key: string) {
   try {
     return localStorage.getItem(key) || '';
@@ -143,6 +158,7 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [profileId, setProfileId] = useState(readStorage('scout-profile'));
   const [companyFilter, setCompanyFilter] = useState('');
+  const [pipelineView, setPipelineView] = useState<'working' | 'review'>('working');
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState('all');
   const [mode, setMode] = useState('all');
@@ -198,18 +214,21 @@ export default function App() {
       state.jobs
         .filter((j) => {
           const match = matches.get(j.id)!;
+          const historical = pipelineSection(j, state.jobAvailability?.[j.id]) === 'history';
           return (
-            (tab === 'saved_targets'
-              ? true
-              : tab === 'all'
-                ? j.stage !== 'archived'
-                : tab === 'favorites'
-                  ? j.favorite && j.stage !== 'archived'
-                  : tab === 'due'
-                    ? !!j.followUp &&
-                      j.followUp <= new Date().toLocaleDateString('en-CA') &&
-                      !['archived', 'offer'].includes(j.stage)
-                    : j.stage === tab) &&
+            jobReviewCategory(j) !== 'reject' &&
+            (tab === 'saved_targets' ||
+              (tab === 'archived'
+                ? historical
+                : !historical &&
+                  (tab === 'all' ||
+                    (tab === 'favorites'
+                      ? j.favorite
+                      : tab === 'due'
+                        ? !!j.followUp &&
+                          j.followUp <= new Date().toLocaleDateString('en-CA') &&
+                          j.stage !== 'offer'
+                        : j.stage === tab)))) &&
             (!companyFilter || j.companyId === companyFilter) &&
             (scopedJobIds === null || scopedJobIds.includes(j.id)) &&
             (!search ||
@@ -236,6 +255,7 @@ export default function App() {
         ),
     [
       state.jobs,
+      state.jobAvailability,
       matches,
       companyFilter,
       scopedJobIds,
@@ -250,8 +270,23 @@ export default function App() {
       showExcluded,
     ],
   );
-  const active = state.jobs.filter((j) => j.stage !== 'archived');
-  const inProgress = state.jobs.filter((j) => ['applied', 'interview'].includes(j.stage));
+  const catalogJobs = state.jobs.filter((j) => jobReviewCategory(j) !== 'reject');
+  const active = catalogJobs.filter(
+    (j) => pipelineSection(j, state.jobAvailability?.[j.id]) !== 'history',
+  );
+  const pipeline = useMemo(() => {
+    const working: Job[] = [];
+    const review: Job[] = [];
+    const workingJobIds = state.workingJobIds && new Set(state.workingJobIds);
+    for (const job of state.jobs) {
+      if (companyFilter && job.companyId !== companyFilter) continue;
+      const section = pipelineSection(job, state.jobAvailability?.[job.id]);
+      if (section === 'working' && (!workingJobIds || workingJobIds.has(job.id))) working.push(job);
+      if (section === 'review') review.push(job);
+    }
+    return { working, review };
+  }, [state.jobs, state.jobAvailability, state.workingJobIds, companyFilter]);
+  const inProgress = active.filter((j) => ['applied', 'interview'].includes(j.stage));
   const good = active.filter((j) => (matches.get(j.id)?.score ?? -1) >= 70);
   const due = active.filter(
     (j) =>
@@ -264,6 +299,28 @@ export default function App() {
     setTab('all');
     setCompanyFilter('');
     setScopedJobIds(null);
+    setPipelineView('working');
+  };
+  const openCompanyPipeline = (companyId: string) => {
+    close();
+    navigate('pipeline');
+    setCompanyFilter(companyId);
+    void refresh().catch((e: Error) => setError(e.message));
+  };
+  const openCompanyJobs = (companyId: string, ids: string[]) => {
+    close();
+    navigate('jobs');
+    resetFilters();
+    setCompanyFilter(companyId);
+    setScopedJobIds(ids);
+    setShowExcluded(true);
+    setTab('saved_targets');
+    void refresh().catch((e: Error) => setError(e.message));
+  };
+  const openCompanyJob = (id: string) => {
+    setDialog({ kind: 'detail', id });
+    if (!state.jobs.some((job) => job.id === id))
+      void refresh().catch((e: Error) => setError(e.message));
   };
   const notify = async (fn: () => Promise<unknown>, message?: string) => {
     try {
@@ -309,6 +366,10 @@ export default function App() {
   };
   const details =
     dialog?.kind === 'detail' ? state.jobs.find((j) => j.id === dialog.id) : undefined;
+  const detailDiscoveryReview = details?.catalogReview ? undefined : details?.discoveryAssessment;
+  const detailReview = details?.catalogReview ?? detailDiscoveryReview;
+  const detailAvailability = details ? state.jobAvailability?.[details.id] : undefined;
+  const pipelineCompany = state.companies.find((company) => company.id === companyFilter);
   const configured =
     !!profile &&
     (profile.keywords.length > 0 ||
@@ -513,7 +574,7 @@ export default function App() {
             </div>
           ) : (
             <>
-              {(page === 'jobs' || page === 'pipeline') && (
+              {page === 'jobs' && (
                 <div className="stats-grid">
                   <Stat
                     label="Возможностей в базе"
@@ -858,20 +919,24 @@ export default function App() {
                     expanded={comparisonExpanded}
                     onExpandedChange={setComparisonExpanded}
                     onDetail={(id) => setDialog({ kind: 'companyDetail', id })}
-                    onJob={(id) => setDialog({ kind: 'detail', id })}
-                    onJobs={(companyId, ids) => {
-                      navigate('jobs');
-                      resetFilters();
-                      setCompanyFilter(companyId);
-                      setScopedJobIds(ids);
-                      setShowExcluded(true);
-                      setTab('saved_targets');
-                    }}
+                    onJob={openCompanyJob}
+                    onJobs={openCompanyJobs}
+                    onPipeline={openCompanyPipeline}
                     profileId={profile?.id || ''}
                     companyRevision={[
                       String(state.selection?.version || ''),
                       ...state.companies.map((c) => c.id + ':' + c.updatedAt),
-                      ...state.jobs.map((j) => j.id + ':' + j.updatedAt + ':' + j.lastSeenAt),
+                      ...state.jobs.map((j) => {
+                        const availability = state.jobAvailability?.[j.id];
+                        return [
+                          j.id,
+                          j.updatedAt,
+                          j.lastSeenAt,
+                          availability?.state,
+                          availability?.checkedAt,
+                          availability?.verifiedAt,
+                        ].join(':');
+                      }),
                       ...state.sources.map((s) => s.id + ':' + s.lastSync),
                     ].join('|')}
                   />
@@ -889,13 +954,46 @@ export default function App() {
                         onChange={(e) => setSearch(e.target.value)}
                       />
                     </div>
+                    <label className="pipeline-view">
+                      <span>Показывать</span>
+                      <select
+                        value={pipelineView}
+                        onChange={(event) =>
+                          setPipelineView(event.target.value as 'working' | 'review')
+                        }
+                      >
+                        <option value="working">
+                          Открытые для работы ({pipeline.working.length})
+                        </option>
+                        <option value="review">На проверке ({pipeline.review.length})</option>
+                      </select>
+                    </label>
+                    {pipelineCompany && (
+                      <div className="pipeline-scope">
+                        <button
+                          className="text-link"
+                          onClick={() =>
+                            setDialog({ kind: 'companyDetail', id: pipelineCompany.id })
+                          }
+                        >
+                          {pipelineCompany.name}
+                        </button>
+                        <button
+                          className="icon-button"
+                          aria-label="Показать все компании"
+                          onClick={() => setCompanyFilter('')}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )}
                     <span className="pipeline-tip">
                       Перетащите карточку или выберите этап в ней
                     </span>
                   </div>
                   <div className="kanban">
-                    {stages.map((s) => {
-                      const cards = state.jobs.filter(
+                    {pipelineStages.map((s) => {
+                      const cards = pipeline[pipelineView].filter(
                         (j) =>
                           j.stage === s &&
                           (!search ||
@@ -933,7 +1031,14 @@ export default function App() {
                                 <div>
                                   <Logo name={j.company} />
                                   <span>
-                                    {j.company}
+                                    <button
+                                      className="text-link pipeline-company-link"
+                                      onClick={() =>
+                                        setDialog({ kind: 'companyDetail', id: j.companyId })
+                                      }
+                                    >
+                                      {j.company}
+                                    </button>
                                     {j.demo && <small>Демо</small>}
                                   </span>
                                 </div>
@@ -943,6 +1048,11 @@ export default function App() {
                                 >
                                   {j.title}
                                 </button>
+                                <small className="pipeline-job-status">
+                                  {reviewLabels[jobReviewCategory(j) ?? 'uncertain']}
+                                  {pipelineView === 'review' &&
+                                    ` · ${availabilityLabels[state.jobAvailability?.[j.id]?.state ?? 'unverified']}`}
+                                </small>
                                 <p>
                                   <MapPin size={12} />
                                   {j.location || 'Не указано'}
@@ -1253,7 +1363,19 @@ export default function App() {
           </button>
         </div>
       )}
-      {dialog && (
+      {dialog?.kind === 'companyJobs' && (
+        <Suspense fallback={<div className="loading">Загрузка вакансий…</div>}>
+          <TargetVacanciesModal
+            companyId={dialog.id}
+            name={state.companies.find((company) => company.id === dialog.id)?.name || 'Компания'}
+            close={close}
+            onJob={openCompanyJob}
+            onJobs={openCompanyJobs}
+            onPipeline={openCompanyPipeline}
+          />
+        </Suspense>
+      )}
+      {dialog && dialog.kind !== 'companyJobs' && (
         <Modal
           title={
             dialog.kind === 'job'
@@ -1286,9 +1408,23 @@ export default function App() {
               const company = state.companies.find((c) => c.id === dialog.id);
               return company ? (
                 <Suspense fallback={<Loader2 className="spin" />}>
+                  <div className="detail-actions company-vacancy-navigation">
+                    <button
+                      className="button secondary"
+                      onClick={() => setDialog({ kind: 'companyJobs', id: company.id })}
+                    >
+                      Вакансии компании
+                    </button>
+                    <button
+                      className="button secondary"
+                      onClick={() => openCompanyPipeline(company.id)}
+                    >
+                      В воронку
+                    </button>
+                  </div>
                   <CompanyDetails
                     company={company}
-                    jobs={state.jobs.filter(
+                    jobs={catalogJobs.filter(
                       (j) => j.companyId === company.id && j.stage !== 'archived',
                     )}
                     onEdit={() => setDialog({ kind: 'company', item: company })}
@@ -1317,6 +1453,13 @@ export default function App() {
                 </div>
               </div>
               <div className="detail-actions">
+                <button
+                  className="button secondary"
+                  onClick={() => setDialog({ kind: 'companyDetail', id: details.companyId })}
+                >
+                  <Building2 size={15} />
+                  Компания
+                </button>
                 <select
                   aria-label="Этап вакансии"
                   value={details.stage}
@@ -1351,17 +1494,28 @@ export default function App() {
                   <span key={i}>{t}</span>
                 ))}
               </div>
-              {details.discoveryAssessment && (
+              {detailAvailability && (
+                <p className="detail-availability">
+                  {availabilityLabels[detailAvailability.state]}
+                  {detailAvailability.checkedAt &&
+                    ` · наблюдение ${date(detailAvailability.checkedAt)}`}
+                  {detailAvailability.verificationUrl && (
+                    <>
+                      {' '}
+                      · <External href={detailAvailability.verificationUrl}>Основание</External>
+                    </>
+                  )}
+                </p>
+              )}
+              {detailReview && (
                 <div className="details-ai">
                   <strong>
-                    {details.discoveryAssessment.category === 'target'
-                      ? 'Целевая роль'
-                      : 'Для тренировки'}{' '}
-                    · {details.discoveryAssessment.language.toUpperCase()}
+                    {reviewLabels[detailReview.category]}
+                    {detailDiscoveryReview && ` · ${detailDiscoveryReview.language.toUpperCase()}`}
                   </strong>
-                  <p>{details.discoveryAssessment.reason}</p>
-                  {details.discoveryAssessment.uncertainties.length > 0 && (
-                    <p>Уточнить: {details.discoveryAssessment.uncertainties.join('; ')}</p>
+                  <p>{detailReview.reason}</p>
+                  {detailDiscoveryReview && detailDiscoveryReview.uncertainties.length > 0 && (
+                    <p>Уточнить: {detailDiscoveryReview.uncertainties.join('; ')}</p>
                   )}
                 </div>
               )}

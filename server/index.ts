@@ -75,6 +75,7 @@ app.get('/api/state', (_req, res) => res.json(store.state()));
 app.get('/api/health', (_req, res) =>
   res.json({ ok: true, application: 'jobs-checker', workspace: resolve('.'), syncing: sync.busy }),
 );
+app.post('/api/jobs/review', (req, res) => res.json(store.reviewSavedJobs(req.body)));
 app.post('/api/jobs', (req, res) => res.json(store.addJob(req.body)));
 app.patch('/api/jobs/:id', (req, res) =>
   res.json(store.updateJob(String(req.params.id), req.body)),
@@ -131,7 +132,12 @@ app.post('/api/sync', async (req, res) => {
 app.post('/api/import/preview', (req, res) => res.json(store.importData(req.body, true)));
 app.post('/api/import', (req, res) => res.json(store.importData(req.body)));
 app.get('/api/export', (_req, res) => {
-  const { adzunaConfigured: _, ...data } = store.state();
+  const {
+    adzunaConfigured: _,
+    jobAvailability: _availability,
+    workingJobIds: _working,
+    ...data
+  } = store.state();
   res.setHeader(
     'Content-Disposition',
     `attachment; filename="jobs-checker-${new Date().toISOString().slice(0, 10)}.json"`,

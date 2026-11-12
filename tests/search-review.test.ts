@@ -251,3 +251,71 @@ it('records a Himalayas 410 without treating the provider as official Careers ev
     db.db.close();
   }
 });
+
+it('keeps the working funnel and the company work list on the same saved cards', () => {
+  const db = store();
+  try {
+    const add = (slug: string, stage: Job['stage'] = 'new', open = true) =>
+      db.addJob({
+        title: 'Senior Product Analyst',
+        company: 'Fixture Co',
+        url: `https://example.test/${slug}`,
+        description: experiment,
+        stage,
+        notes: 'Keep personal notes',
+        ...(open
+          ? {
+              availabilityVerification: {
+                state: 'open',
+                source: 'careers',
+                checkedAt: new Date().toISOString(),
+                url: `https://example.test/${slug}`,
+              },
+            }
+          : {}),
+      }).job;
+    const target = add('target'),
+      archived = add('archived', 'archived');
+    const rejected = add('rejected'),
+      pending = add('pending', 'new', false);
+    const reviews = ([target, archived, rejected, pending] as const).map((job, i) => ({
+      id: job.id,
+      expectedUpdatedAt: job.updatedAt,
+      category: ['target', 'practice', 'reject', 'target'][i],
+      reason: 'Reviewed example',
+    }));
+    expect(() =>
+      db.reviewSavedJobs({
+        reviews: [
+          reviews[0],
+          {
+            ...reviews[1],
+            expectedUpdatedAt: '2000-01-01T00:00:00.000Z',
+          },
+        ],
+      }),
+    ).toThrow('изменилась');
+    expect(db.state().workingJobIds).toEqual([]);
+    expect(db.reviewSavedJobs({ reviews })).toEqual({ reviewed: 4 });
+    expect(db.state().workingJobIds).toEqual([target.id]);
+    const research = new CompanyResearch(db);
+    const company = research.profile(target.companyId);
+    expect(company.jobs.some((job) => job.id === rejected.id)).toBe(false);
+    expect(company.currentJobs.some((job) => job.id === archived.id)).toBe(false);
+    const view = company.targetVacancies;
+    expect(view.workingJobIds).toEqual([target.id]);
+    expect(view.historyJobs.map((job) => job.id)).toEqual(
+      expect.arrayContaining([archived.id, pending.id]),
+    );
+    expect(view.historyJobs.some((job) => job.id === rejected.id)).toBe(false);
+    expect(db.get<Job>('jobs', archived.id)).toMatchObject({
+      stage: 'archived',
+      notes: 'Keep personal notes',
+    });
+    const { jobMaterials } = research.plan(target.companyId);
+    expect(jobMaterials.find((m) => m.job.id === archived.id)?.researchUse).toBe('historical');
+    expect(jobMaterials.some((m) => m.job.id === rejected.id)).toBe(false);
+  } finally {
+    db.db.close();
+  }
+});

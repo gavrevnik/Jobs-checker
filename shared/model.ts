@@ -119,6 +119,13 @@ export const availabilityVerificationSchema = z.object({
   url: z.url().refine((v) => /^https?:\/\//i.test(v)),
   checkedAt: z.iso.datetime(),
 });
+export const catalogReviewSchema = z.object({
+  category: z.enum(['target', 'practice', 'reject', 'uncertain']),
+  reason: z.string().trim().min(1).max(2000),
+  reviewedAt: z.iso.datetime(),
+  profileVersion: z.number().int().optional(),
+});
+
 export const jobSchema = z
   .object({
     title: z.string().trim().min(1, 'Укажите название вакансии').max(300),
@@ -176,6 +183,7 @@ export const jobSchema = z
     eligibleLocations: z.array(z.string().max(150)).max(300).optional(),
     timezoneRestrictions: z.array(z.string().max(50)).max(100).optional(),
     providerCompanyId: z.string().max(200).optional(),
+    catalogReview: catalogReviewSchema.optional(),
     discoveryAssessment: z
       .object({
         category: z.enum(['target', 'practice']),
@@ -299,6 +307,11 @@ export type State = {
   selection?: import('./selection-profile.js').SelectionConfig;
   effectiveProfile?: Profile;
   jobs: Job[];
+  jobAvailability?: Record<
+    string,
+    ReturnType<typeof import('./target-vacancies.js').jobAvailability>
+  >;
+  workingJobIds?: string[];
   companies: Company[];
   profiles: Profile[];
   sources: Source[];

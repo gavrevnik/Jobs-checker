@@ -15,6 +15,7 @@ import {
 import type { Company, Job, Profile, Source } from '../shared/model.js';
 import { companyTargetVacancies } from './company-target-vacancies.js';
 import { jobAvailability } from '../shared/target-vacancies.js';
+import { jobReviewCategory } from '../shared/job-pipeline.js';
 import { companyJobMaterials } from '../shared/company-job-materials.js';
 import {
   calculateScoreSnapshot,
@@ -680,7 +681,9 @@ export class CompanyResearch {
       missingCount: Number(o.missingCount),
     }));
     const history = context.historyByCompany.get(companyId) || [];
-    const savedJobs = context.jobsByCompany.get(companyId) || [];
+    const savedJobs = (context.jobsByCompany.get(companyId) || []).filter(
+      (job) => jobReviewCategory(job) !== 'reject',
+    );
     const targetVacancies = companyTargetVacancies(
       companyId,
       savedJobs,
@@ -745,7 +748,11 @@ export class CompanyResearch {
         .sort()
         .at(-1) || '';
     const currentJobs = jobs.filter(
-      (j) => j.current && j.suitable && (!country || j.countries.includes(country)),
+      (j) =>
+        j.current &&
+        j.stage !== 'archived' &&
+        j.suitable &&
+        (!country || j.countries.includes(country)),
     );
     const columnSources = companyColumnSources(
       company,
