@@ -14,6 +14,9 @@ import {
   companySchema,
   catalogReviewSchema,
   jobSchema,
+  jobHistoryEntrySchema,
+  jobStageSchema,
+  stageNoteSchema,
   profileSchema,
   sourceSchema,
   type Company,
@@ -31,7 +34,7 @@ import {
   type DiscoveryReview,
 } from '../shared/discovery-review.js';
 import { jobAvailability } from '../shared/target-vacancies.js';
-import { pipelineSection } from '../shared/job-pipeline.js';
+import { personalPipelineSection } from '../shared/job-pipeline.js';
 import type { SourceRun } from '../shared/source-tools.js';
 
 const importedJob = jobSchema.safeExtend({
@@ -39,15 +42,7 @@ const importedJob = jobSchema.safeExtend({
   createdAt: z.iso.datetime().optional(),
   updatedAt: z.iso.datetime().optional(),
   lastSeenAt: z.union([z.literal(''), z.iso.datetime()]).optional(),
-  history: z
-    .array(
-      z.object({
-        stage: z.enum(['new', 'saved', 'applied', 'interview', 'offer', 'archived']),
-        at: z.iso.datetime(),
-      }),
-    )
-    .max(10000)
-    .optional(),
+  history: z.array(jobHistoryEntrySchema).max(10000).optional(),
 });
 const importedSource = sourceSchema.safeExtend({ id: z.string().max(100).optional() });
 export const importSchema = z
@@ -309,17 +304,24 @@ export class Store {
   updateJob(id: string, input: unknown) {
     const old = this.get<Job>('jobs', id);
     if (!old) throw new Error('Вакансия не найдена');
-    const data = jobSchema.parse({ ...old, ...(input as object) });
+    const patch = input as Record<string, unknown> | null | undefined;
+    const note = stageNoteSchema.optional().parse(patch?.stageNote);
+    if (note !== undefined) jobStageSchema.parse(patch?.stage);
+    const data = jobSchema.parse({ ...old, ...patch });
     const company = this.saveCompany({ name: data.company, demo: data.demo });
+    const at = stamp();
+    const lastEvent = old.history.at(-1);
+    const appendEvent =
+      data.stage !== old.stage ||
+      (note !== undefined && (lastEvent?.stage !== data.stage || lastEvent.note !== note));
     const job = {
       ...old,
       ...data,
       companyId: company.id,
-      updatedAt: stamp(),
-      history:
-        data.stage === old.stage
-          ? old.history
-          : [...old.history, { stage: data.stage, at: stamp() }],
+      updatedAt: at,
+      history: appendEvent
+        ? [...old.history, { stage: data.stage, at, ...(note !== undefined ? { note } : {}) }]
+        : old.history,
     };
     this.writeJob(job);
     return job;
@@ -594,7 +596,7 @@ export class Store {
         .filter(
           (job) =>
             companiesById.has(job.companyId) &&
-            pipelineSection(job, availability[job.id]) === 'working',
+            personalPipelineSection(job, availability[job.id]) === 'working',
         )
         .map((job) => job.id),
       adzunaConfigured: !!(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY),

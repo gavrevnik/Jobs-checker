@@ -952,9 +952,6 @@ h1 {
 .stage-new {
   color: #87a374;
 }
-.stage-saved {
-  color: #b99c61;
-}
 .stage-applied {
   color: #7798b7;
 }
@@ -963,6 +960,9 @@ h1 {
 }
 .stage-offer {
   color: #559b80;
+}
+.stage-rejected {
+  color: #a45e57;
 }
 .stage-archived {
   color: #a4a79f;
@@ -2108,12 +2108,19 @@ h1 {
   flex-wrap: wrap;
   gap: 17px;
 }
-.history > span {
+.history-event {
   display: flex;
   align-items: center;
   gap: 5px;
   font-size: 10px;
   color: #9bad89;
+}
+.history-with-note {
+  flex: 0 0 100%;
+  min-width: 0;
+}
+.history-note {
+  margin: 8px 0 0;
 }
 .history i {
   width: 4px;

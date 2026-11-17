@@ -38,7 +38,7 @@ const periods: Record<string, string> = {
   '31 день': 'за 31 день',
   '7 дней': 'за 7 дней',
   '24 часа': 'за 24 часа',
-  всего: 'на ключ · без сброса',
+  'день UTC': 'за день UTC на ключ',
 };
 const number = (value: number) => new Intl.NumberFormat('ru-RU').format(value);
 const requestWord = (value: number) => {

@@ -52,7 +52,11 @@ import {
 } from '../shared/model';
 import { api, date } from './api';
 import { availabilityLabels } from '../shared/target-vacancies';
-import { jobReviewCategory, pipelineSection } from '../shared/job-pipeline';
+import {
+  jobReviewCategory,
+  personalPipelineSection,
+  pipelineSection,
+} from '../shared/job-pipeline';
 import { SourcesPage } from './SourcesPage';
 import { ResourcesPage, type ResourceTab } from './ResourcesPage';
 const AnalyticsPage = lazy(() =>
@@ -227,7 +231,8 @@ export default function App() {
                       : tab === 'due'
                         ? !!j.followUp &&
                           j.followUp <= new Date().toLocaleDateString('en-CA') &&
-                          j.stage !== 'offer'
+                          j.stage !== 'offer' &&
+                          j.stage !== 'rejected'
                         : j.stage === tab)))) &&
             (!companyFilter || j.companyId === companyFilter) &&
             (scopedJobIds === null || scopedJobIds.includes(j.id)) &&
@@ -280,7 +285,7 @@ export default function App() {
     const workingJobIds = state.workingJobIds && new Set(state.workingJobIds);
     for (const job of state.jobs) {
       if (companyFilter && job.companyId !== companyFilter) continue;
-      const section = pipelineSection(job, state.jobAvailability?.[job.id]);
+      const section = personalPipelineSection(job, state.jobAvailability?.[job.id]);
       if (section === 'working' && (!workingJobIds || workingJobIds.has(job.id))) working.push(job);
       if (section === 'review') review.push(job);
     }
@@ -290,7 +295,10 @@ export default function App() {
   const good = active.filter((j) => (matches.get(j.id)?.score ?? -1) >= 70);
   const due = active.filter(
     (j) =>
-      j.followUp && j.followUp <= new Date().toLocaleDateString('en-CA') && j.stage !== 'offer',
+      j.followUp &&
+      j.followUp <= new Date().toLocaleDateString('en-CA') &&
+      j.stage !== 'offer' &&
+      j.stage !== 'rejected',
   );
   const navigate = (p: Page) => {
     setPage(p === 'sources' ? 'resources' : p);
@@ -616,7 +624,7 @@ export default function App() {
                         {[
                           ['all', 'Все вакансии'],
                           ['favorites', 'Избранное'],
-                          ['new', 'Новые'],
+                          ['new', stageLabels.new],
                           ['archived', 'Архив'],
                         ].map(([v, t]) => (
                           <button
@@ -860,7 +868,7 @@ export default function App() {
                                 {stageLabels[j.stage]}
                               </span>
                               <span>
-                                {j.followUp && (
+                                {j.followUp && j.stage !== 'rejected' && (
                                   <span className="followup-inline">
                                     <Bell size={12} />
                                     {date(j.followUp)} ·{' '}
@@ -963,7 +971,7 @@ export default function App() {
                         }
                       >
                         <option value="working">
-                          Открытые для работы ({pipeline.working.length})
+                          Основная воронка ({pipeline.working.length})
                         </option>
                         <option value="review">На проверке ({pipeline.review.length})</option>
                       </select>
@@ -1057,7 +1065,7 @@ export default function App() {
                                   <MapPin size={12} />
                                   {j.location || 'Не указано'}
                                 </p>
-                                {j.followUp && (
+                                {j.followUp && j.stage !== 'rejected' && (
                                   <div className="kanban-date">
                                     <Bell size={12} />
                                     {date(j.followUp)}
@@ -1576,7 +1584,7 @@ export default function App() {
                   {details.notes ||
                     'Добавьте заметки через «Редактировать»: контакты, вопросы и впечатления.'}
                 </p>
-                {details.followUp && (
+                {details.followUp && details.stage !== 'rejected' && (
                   <p className="followup-detail">
                     <Bell size={15} />
                     Следующее действие: {date(details.followUp)}
@@ -1587,11 +1595,14 @@ export default function App() {
                 <h3>История</h3>
                 <div className="history">
                   {details.history.map((h, i) => (
-                    <span key={i}>
-                      <i />
-                      {stageLabels[h.stage]}
-                      <small>{date(h.at)}</small>
-                    </span>
+                    <div className={h.note ? 'history-with-note' : undefined} key={i}>
+                      <span className="history-event">
+                        <i />
+                        {stageLabels[h.stage]}
+                        <small>{date(h.at)}</small>
+                      </span>
+                      {h.note && <p className="description history-note">{h.note}</p>}
+                    </div>
                   ))}
                 </div>
               </div>

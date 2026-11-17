@@ -5,6 +5,7 @@ import { api, split } from './api';
 import {
   providerLabels,
   stageLabels,
+  stages,
   workLabels,
   profileLevelLabel,
   companySizeLabels,
@@ -314,9 +315,9 @@ export function JobForm({
         </Field>
         <Field label="Этап">
           <select name="stage" defaultValue={job?.stage || 'new'}>
-            {Object.entries(stageLabels).map(([v, t]) => (
+            {stages.map((v) => (
               <option key={v} value={v}>
-                {t}
+                {stageLabels[v]}
               </option>
             ))}
           </select>

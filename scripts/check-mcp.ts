@@ -69,11 +69,11 @@ try {
   assert.equal(status.providers.length, 12);
   assert.ok(status.providers.some((p: any) => p.id === 'jobicy' && !p.missing.length));
   assert.equal(status.providers.find((p: any) => p.id === 'adzuna').quota.limit, 2500);
-  assert.equal(status.providers.find((p: any) => p.id === 'jooble').quota.limit, 500);
-  assert.equal(
-    status.providers.find((p: any) => p.id === 'jooble').quota.windows[0].nextResetAt,
-    null,
-  );
+  const joobleQuota = status.providers.find((p: any) => p.id === 'jooble').quota;
+  assert.equal(joobleQuota.limit, 100);
+  const nextUtcMidnight = new Date(joobleQuota.updatedAt);
+  nextUtcMidnight.setUTCHours(24, 0, 0, 0);
+  assert.equal(joobleQuota.windows[0].nextResetAt, nextUtcMidnight.toISOString());
   assert.ok(status.providers.find((p: any) => p.id === 'serpapi').quota.updatedAt);
   const plan = await call('jobs_search', {
     providers: ['adzuna'],
@@ -153,6 +153,14 @@ try {
   assert.equal((await call('jobs_ats_list')).jobs[0].aiScore, 8.5);
   await call('jobs_ats_update', { jobId: job.id, favorite: true });
   assert.equal((await call('jobs_ats_list')).jobs[0].aiScore, 8.5);
+  await call('jobs_ats_update', {
+    jobId: job.id,
+    stage: 'rejected',
+    stageNote: 'Employer declined.',
+  });
+  const rejected = (await call('jobs_ats_list', { stage: 'rejected' })).jobs[0];
+  assert.equal(rejected.notes, 'Keep this');
+  assert.equal(rejected.history.at(-1).note, 'Employer declined.');
   const board = await call('jobs_add_company_board', {
     provider: 'lever',
     board: 'https://jobs.eu.lever.co/test',

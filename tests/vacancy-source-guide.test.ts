@@ -72,10 +72,10 @@ describe('Compact source guide', () => {
       'Пауза: лимит исчерпан',
     ]);
   });
-  it('does not invent a daily quota or a monthly reset for lifetime keys', () => {
+  it('shows the Jooble quota in UTC and distinguishes public feeds', () => {
     const p = provider('jooble');
-    p.quota.windows = [window('всего', 15, 500)];
-    expect(sourceLimits(p)).toEqual(['15 / 500 запросов на ключ · без сброса']);
+    p.quota.windows = [window('день UTC', 15, 100)];
+    expect(sourceLimits(p)).toEqual(['15 / 100 запросов за день UTC на ключ']);
     expect(sourceLimits(provider('ashby'))).toEqual([
       '3 запроса сегодня',
       'Суточная квота не заявлена',

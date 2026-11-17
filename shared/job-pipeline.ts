@@ -13,3 +13,8 @@ export function pipelineSection(job: Job, availability?: { state: AvailabilitySt
     return 'working';
   return 'review';
 }
+
+export function personalPipelineSection(job: Job, availability?: { state: AvailabilityState }) {
+  if (!job.demo && (job.stage === 'interview' || job.stage === 'rejected')) return 'working';
+  return pipelineSection(job, availability);
+}

@@ -164,30 +164,35 @@ describe('Persistent provider quotas', () => {
     expect(status.quota.windows[1].used).toBe(5); // hourly rate counts all attempts
     expect(mock).toHaveBeenCalledTimes(5);
   });
-  it('keeps Jooble lifetime usage across years and separates regional keys without exposing secrets', async () => {
-    clock('2026-10-03T12:00:00Z');
+  it('enforces the Jooble daily quota per regional key and reopens it at midnight UTC', async () => {
+    clock('2026-10-03T23:59:59.999Z');
     vi.stubEnv('JOOBLE_API_KEY', 'fixture-key-a');
     vi.stubEnv('JOOBLE_HOST', 'es.jooble.org');
     const store = db();
     const scopeA = requestScope('jooble');
-    for (let i = 0; i < 499; i++)
-      record(store, 'jooble', '2025-01-01T00:00:00.000Z', 'unknown', scopeA);
-    record(store, 'jooble', '2024-01-01T00:00:00.000Z'); // legacy unscoped request
+    record(store, 'jooble', '2026-10-02T23:59:59.999Z', 'unknown', scopeA);
+    for (let i = 0; i < 99; i++)
+      record(store, 'jooble', '2026-10-03T00:00:00.000Z', 'unknown', scopeA);
+    record(store, 'jooble', '2026-10-03T00:00:00.000Z'); // legacy unscoped request
     const mock = vi.fn<typeof fetch>().mockImplementation(async () => json({ jobs: [] }));
     await expect(
       meteredFetcher(store, 'jooble', budget(), mock)('https://example.com/jobs'),
     ).rejects.toThrow('лимит');
     expect(quota(store, 'jooble').windows[0]).toMatchObject({
-      used: 500,
+      used: 100,
+      limit: 100,
       remaining: 0,
-      nextResetAt: null,
+      nextResetAt: '2026-10-04T00:00:00.000Z',
     });
-    vi.setSystemTime(new Date('2027-01-01T00:00:00Z'));
-    expect(quota(store, 'jooble').used).toBe(500);
+    expect(mock).not.toHaveBeenCalled();
     vi.stubEnv('JOOBLE_API_KEY', 'fixture-key-b');
     expect(quota(store, 'jooble').used).toBe(1);
+    vi.stubEnv('JOOBLE_API_KEY', 'fixture-key-a');
+    vi.setSystemTime(new Date('2026-10-04T00:00:00.000Z'));
+    expect(quota(store, 'jooble').used).toBe(0);
     await meteredFetcher(store, 'jooble', budget(), mock)('https://example.com/jobs');
-    expect(quota(store, 'jooble').used).toBe(2);
+    expect(mock).toHaveBeenCalledTimes(1);
+    expect(quota(store, 'jooble').used).toBe(1);
     expect(JSON.stringify(store.db.prepare('SELECT * FROM provider_requests').all())).not.toContain(
       'fixture-key',
     );

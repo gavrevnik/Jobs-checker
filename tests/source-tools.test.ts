@@ -63,7 +63,7 @@ describe('Provider tools and ATS ingestion', () => {
       reviewRequired: false,
     };
     const de = await tools.search(args);
-    s.updateJob(de.jobs[0].atsId!, { stage: 'saved', notes: 'Keep German workflow' });
+    s.updateJob(de.jobs[0].atsId!, { stage: 'applied', notes: 'Keep German workflow' });
     const uk = await tools.search({ ...args, country: 'gb' });
     expect(uk.targets[0]).toMatchObject({
       name: 'Arbeitnow UK',
@@ -355,12 +355,12 @@ describe('Additional provider contracts and quotas', () => {
       source,
     );
     const saved = s.addJob(full, source.id, true).job;
-    s.updateJob(saved.id, { stage: 'saved', notes: 'prepare' });
+    s.updateJob(saved.id, { stage: 'applied', notes: 'prepare' });
     const summary = normalize('smartrecruiters', { id: 'detail', name: 'Analyst' }, source);
     s.transaction(() => s.ingestJobs([summary], source.id));
     expect(s.get<Job>('jobs', saved.id)).toMatchObject({
       description: 'SQL experiments',
-      stage: 'saved',
+      stage: 'applied',
       notes: 'prepare',
     });
   });

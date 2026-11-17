@@ -9,7 +9,11 @@ import { boardSchema } from '../server/source-tools.js';
 import { discoveryReviewSchema, discoveryHistorySchema } from '../shared/discovery-review.js';
 import { importSchema } from '../server/store.js';
 import { researchImportSchema, observationSchema } from '../shared/company-research.js';
-import { availabilityVerificationSchema, stages } from '../shared/model.js';
+import {
+  availabilityVerificationSchema,
+  jobStageSchema,
+  stageNoteSchema,
+} from '../shared/model.js';
 import { cultureAssessmentSchema } from '../shared/company-culture-fit.js';
 import { fitAssessmentSchema } from '../shared/company-fit.js';
 import { selectionInputSchema } from '../shared/selection-profile.js';
@@ -177,7 +181,7 @@ server.registerTool(
     description: 'Read ATS vacancies and observation history.',
     inputSchema: {
       query: z.string().max(200).default(''),
-      stage: z.enum(stages).optional(),
+      stage: jobStageSchema.optional(),
       limit: z.number().int().min(1).max(200).default(50),
     },
     annotations: { readOnlyHint: true },
@@ -200,7 +204,10 @@ server.registerTool(
       'Update a local vacancy workflow, notes or evidence-based AI assessment (0–10). Provide aiReason, aiSummary, aiProfileId, aiReviewedAt and source URLs with a score. Scores are human/LLM judgments, not automatic keyword matches. Never sends an application.',
     inputSchema: {
       jobId: z.string().min(1),
-      stage: z.enum(stages).optional(),
+      stage: jobStageSchema.optional(),
+      stageNote: stageNoteSchema
+        .optional()
+        .describe('History note to save with the supplied stage'),
       notes: z.string().max(30000).optional(),
       favorite: z.boolean().optional(),
       followUp: z.union([z.literal(''), z.iso.date()]).optional(),

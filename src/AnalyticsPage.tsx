@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ArrowUpRight, Search, SlidersHorizontal, X } from 'lucide-react';
-import { stageLabels, workLabels, type Job, type Profile } from '../shared/model';
+import { stageLabels, stages, workLabels, type Job, type Profile } from '../shared/model';
 import { Salary } from './components';
 import { JobMap } from './JobMap';
 import {
@@ -242,9 +242,9 @@ export function AnalyticsPage({
                 <select value={filters.stage} onChange={(e) => update('stage', e.target.value)}>
                   <option value="active">Без архива</option>
                   <option value="all">Все этапы</option>
-                  {Object.entries(stageLabels).map(([v, t]) => (
+                  {stages.map((v) => (
                     <option key={v} value={v}>
-                      {t}
+                      {stageLabels[v]}
                     </option>
                   ))}
                 </select>

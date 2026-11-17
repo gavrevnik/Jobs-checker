@@ -104,7 +104,7 @@ Company research registry 1.2: `AN09_CULTURE` — descriptive `{summary,tags}`; 
 
 ## Ручные сценарии LLM и Jobicy
 
-Скиллы [discovery](../.agents/skills/jobs-discovery/SKILL.md), [monitoring](../.agents/skills/jobs-monitoring/SKILL.md), [pool review](../.agents/skills/jobs-pool-review/SKILL.md) используют существующие tools и [общие правила](../discovery/workflow-common.md), без нового расписания. `jobs_monitor_companies` остаётся мониторингом зарегистрированных ATS; агентский monitoring дополнительно использует search/web по пробелам.
+Ручные скиллы [discovery](../.agents/skills/jobs-discovery/SKILL.md), [deep discovery](../.agents/skills/jobs-deep-discovery/SKILL.md) и [jobs-update](../.agents/skills/jobs-update/SKILL.md) используют существующие инструменты и [общие правила](../discovery/workflow-common.md). В jobs-update инструмент `jobs_monitor_companies` проверяет зарегистрированные ATS, а `jobs_search_review` сохраняет результаты отбора. Адресный веб-поиск, обновление сведений о компаниях и пересмотр пула доступны в том же сценарии.
 
 `jobs_search({providers:["jobicy"], execute:false})` — план без сети. Для разрешённого прохода execute=true, maxRequests/maxPages; store=true готовит пакет для проверки. Jobicy не требует ключа; общий feed скачивается один раз и фильтруется локально. Часовой guard сохраняется между процессами и считает новые проходы, не cursor-страницы. `jobs_sources_status` возвращает двенадцать адаптеров, в том числе Jobicy; запросы, кэш и история используют прежние таблицы. `jobs_web_search_plan` включает Workday как web-канал, но не выполняет поиск.
 

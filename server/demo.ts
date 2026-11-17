@@ -53,7 +53,7 @@ export function loadDemo(store: Store) {
       salaryMax: 95000,
       tags: ['Product design', 'Figma', 'SaaS'],
       favorite: true,
-      stage: 'saved',
+      stage: 'new',
     },
     {
       title: 'Frontend Engineer',

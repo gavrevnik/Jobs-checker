@@ -594,12 +594,13 @@ export class SourceTools {
         limit: z.number().int().min(1).max(200).default(50),
       })
       .parse(input);
+    const stage = args.stage === 'saved' ? 'new' : args.stage;
     return {
       jobs: this.store
         .list<Job>('jobs')
         .filter(
           (j) =>
-            (!args.stage || j.stage === args.stage) &&
+            (!stage || j.stage === stage) &&
             `${j.title} ${j.company} ${j.location}`
               .toLowerCase()
               .includes(args.query.toLowerCase()),

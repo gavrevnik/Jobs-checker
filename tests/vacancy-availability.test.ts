@@ -291,13 +291,13 @@ describe('Vacancy availability evidence', () => {
         title: 'Senior Data Analyst',
         source: 'adzuna',
         notes: 'Keep note',
-        stage: 'saved',
+        stage: 'applied',
       });
       store.updateJob(job.id, { availabilityVerification: verification('closed') });
       const saved = store.list<Job>('jobs')[0];
       expect(saved).toMatchObject({
         notes: 'Keep note',
-        stage: 'saved',
+        stage: 'applied',
         availabilityVerification: verification('closed'),
       });
       restored.importData(JSON.parse(JSON.stringify(store.state())));

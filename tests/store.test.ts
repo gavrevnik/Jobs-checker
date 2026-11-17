@@ -17,11 +17,59 @@ afterEach(() => {
 const input = { title: 'Engineer', company: 'Acme', url: 'https://example.com/jobs/1' };
 
 describe('Persistent local data', () => {
+  it('puts legacy planned rows in the backlog and preserves their history', () => {
+    const store = memory();
+    const { job } = store.addJob(input);
+    const history = [...job.history, { stage: 'saved', at: job.createdAt }];
+    store.db
+      .prepare('UPDATE jobs SET data=? WHERE id=?')
+      .run(JSON.stringify({ ...job, stage: 'saved', history }), job.id);
+
+    expect(store.get<Job>('jobs', job.id)).toMatchObject({ stage: 'new', history });
+    expect(store.updateJob(job.id, { stage: 'saved' }).history).toEqual(history);
+  });
+
+  it('tracks interviews and refusals in the personal funnel without open postings', () => {
+    const store = memory();
+    const { job: interview } = store.addJob({ ...input, stage: 'interview' });
+    const { job: application } = store.addJob({
+      ...input,
+      url: 'https://example.com/jobs/2',
+      stage: 'applied',
+      notes: 'My application text',
+      availabilityVerification: {
+        state: 'closed',
+        source: 'careers',
+        url: 'https://example.com/jobs/2',
+        checkedAt: new Date().toISOString(),
+      },
+    });
+    expect(store.state().workingJobIds).toEqual([interview.id]);
+    const stageNote = 'Employer declined.\n\nFull email text.';
+    const rejection = { stage: 'rejected', stageNote };
+    expect(() => store.updateJob(application.id, { stageNote })).toThrow();
+    const updated = store.updateJob(application.id, rejection);
+    expect(updated.history).toHaveLength(2);
+    expect(updated.history.at(-1)).toMatchObject({ stage: 'rejected', note: stageNote });
+    expect(store.updateJob(application.id, rejection).history).toEqual(updated.history);
+    const state = store.state();
+    expect(state.workingJobIds).toEqual(expect.arrayContaining([interview.id, application.id]));
+    expect(state.jobAvailability[interview.id].state).toBe('unverified');
+    expect(state.jobAvailability[application.id].state).toBe('closed');
+
+    const restored = memory();
+    restored.importData(state);
+    expect(restored.list<Job>('jobs').find((job) => job.stage === 'rejected')).toMatchObject({
+      history: updated.history,
+      notes: 'My application text',
+    });
+  });
+
   it('adopts a verified ATS source for an imported post without a second card', () => {
     const store = memory();
     const url = 'https://jobs.smartrecruiters.com/Acme/12345-readable-title';
     const { job } = store.addJob({ ...input, url, source: 'import', notes: 'My research' });
-    store.updateJob(job.id, { stage: 'saved' });
+    store.updateJob(job.id, { stage: 'applied' });
     const result = store.addJob(
       {
         ...input,
@@ -38,7 +86,7 @@ describe('Persistent local data', () => {
       id: job.id,
       sourceId: 'verified-board',
       source: 'smartrecruiters',
-      stage: 'saved',
+      stage: 'applied',
       notes: 'My research',
       description: 'Fresh official details',
     });
@@ -66,7 +114,7 @@ describe('Persistent local data', () => {
       description: 'Refreshed description',
       notes: 'Keep my note',
     });
-    store.updateJob(job.id, { stage: 'saved' });
+    store.updateJob(job.id, { stage: 'applied' });
     expect(store.get<Job>('jobs', job.id)?.aiScore).toBe(8.5);
     expect(() => store.updateJob(job.id, { aiScore: 11 })).toThrow();
     expect(() => store.updateJob(job.id, { aiEvidenceUrls: ['javascript:alert(1)'] })).toThrow();

@@ -33,10 +33,8 @@ node --import tsx scripts/prepare-legacy-discovery.ts .runtime/legacy-discovery.
 - [Deep Interview checklist](deep-interview-checklist.md) — конкретные вопросы HR, hiring manager и коллегам. Непубличные детали T04, T07, P03 остаются здесь; опубликованный процесс задач — P03_PUBLIC; публичные сигналы остальных направлений отделены от внутренних вопросов. Ответы интервью не загружаются как публичный discovery.
 - [JSON Schema](research-import.schema.json) — строгая структура, без неизвестных ключей, версия `1.0`, тип значения зависит от criterion ID.
 - [Синтетический пример](examples/research-import.example.json) — две вымышленные компании, unknown, salary scope, противоречия, отзыв и red flag. Не использовать как реальные сведения.
-- [Общие правила](workflow-common.md) — единый порядок сбора, evidence, импорт, квоты и история трёх ручных сценариев.
-- [jobs-discovery](../.agents/skills/jobs-discovery/SKILL.md) — новые компании и повторный ресерч профилей.
-- [jobs-monitoring](../.agents/skills/jobs-monitoring/SKILL.md) — обновление вакансий известных компаний.
-- [jobs-pool-review](../.agents/skills/jobs-pool-review/SKILL.md) — пересмотр пула по соответствию, отдаче и полноте наблюдения; без автоматического архива и расписания.
+- [Общие правила](workflow-common.md) — порядок сбора, проверка фактов, импорт и история ручных сценариев. [Политика адаптеров](adapter-policy.md) задаёт правила квот и согласований.
+- [Скиллы и ручные сценарии](../README.md#скиллы-и-ручные-сценарии) — входы для поиска компаний, глубокого исследования, обновления вакансий и подготовки откликов.
 - [Careers / ATS / LinkedIn](hiring-sources.md) — обязательный поиск официальных карьерных источников перед агрегаторами, безопасный адресный веб-мониторинг и повторное использование identity.
 
 Документ: `schema_version`, `generated_at` (ISO timestamp), `research_mode` (`external_research` / `internal_discovery` / `manual`), `companies`. Компания: `identity`, `observations`, `job_urls`, `red_flags`, `notes`. Identity: name, optional website/company_id/aliases. Для новой компании требуется website; для существующей использовать ID или уникальный домен. Коллизия имени/alias без подтверждающего домена пропускается с причиной; исправить JSON и выполнить новый preview. Website — заявленная исследователем identity, её также необходимо проверить в preview. ID + противоречащий домен блокирует сопоставление.
@@ -154,7 +152,7 @@ node --import tsx -e "import {z} from 'zod'; import {researchImportSchema} from 
 
 Фактически созданы:
 
-- `.agents/skills/{jobs-discovery,jobs-monitoring,jobs-pool-review}/SKILL.md`; общие правила в `discovery/workflow-common.md`.
+- [Текущие скиллы для Jobs Checker](../README.md#скиллы-и-ручные-сценарии) находятся в `.agents/skills/`. Общие правила находятся в [workflow-common.md](workflow-common.md).
 - `discovery/discovery-checklist.md`, `discovery/deep-interview-checklist.md`, `discovery/criteria.json`, `discovery/research-import.schema.json`, `discovery/examples/research-import.example.json`, `discovery/README.md`.
 - `shared/company-research.ts`.
 - `server/company-research.ts`, `server/research-api.ts`, `server/research-migration.ts`, `server/research-paid.ts`.
@@ -180,6 +178,6 @@ Registry 1.5: публичный процесс работы P03_PUBLIC и ст�
 Registry 1.6: A07_SALARY_BENCHMARK добавляет descriptive ориентиры Levels.fyi из бесплатного веб-ресерча с ролью/страной, компонентом/статистикой, валютой/периодом, датой данных и N/областью выборки. Нет возврата A06, salary score и автоматического заполнения зарплаты вакансии. [Сбор/сохранение](salary-web-research.md).
 
 
-## Независимый режим культуры
+## Глубокое исследование компании и вакансий
 
-[Культура и команда](culture-and-team.md) исследуется отдельно от поиска вакансий. Компания и команды получают разные оценки, исторические доказательства сохраняются с исходными датами. Для этого режима обязательный предварительный сбор Careers/ATS и вакансий не нужен.
+[jobs-deep-discovery](../.agents/skills/jobs-deep-discovery/SKILL.md) объединяет исследование бизнеса, вакансий, аналитической среды, условий и интервью по выбранным компаниям. [Методика «Культура и команда»](culture-and-team.md) задаёт отдельные оценки компании и команд и учитывает исходные даты исторических свидетельств.

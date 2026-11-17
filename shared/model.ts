@@ -3,13 +3,24 @@ import { companySourceLinkSchema } from './company-links.js';
 import { companyHiringSchema } from './company-hiring.js';
 import { companyPublicCaseSchema } from './company-public-cases.js';
 
-export const stages = ['new', 'saved', 'applied', 'interview', 'offer', 'archived'] as const;
+export const stages = ['new', 'applied', 'interview', 'offer', 'rejected', 'archived'] as const;
+const storedStageSchema = z.enum([...stages, 'saved']);
+export const jobStageSchema = storedStageSchema.transform((stage) =>
+  stage === 'saved' ? 'new' : stage,
+);
+export const stageNoteSchema = z.string().min(1).max(30000);
+export const jobHistoryEntrySchema = z.object({
+  stage: storedStageSchema,
+  at: z.iso.datetime(),
+  note: stageNoteSchema.optional(),
+});
 export const stageLabels: Record<string, string> = {
-  new: 'Новые',
+  new: 'Бэклог',
   saved: 'В планах',
   applied: 'Откликнулся',
   interview: 'Интервью',
   offer: 'Оффер',
+  rejected: 'Отказ',
   archived: 'Архив',
 };
 export const workLabels: Record<string, string> = {
@@ -150,7 +161,7 @@ export const jobSchema = z
     aiProfileId: z.string().max(100).default(''),
     aiReviewedAt: timestamp.default(''),
     aiEvidenceUrls: z.array(link).max(20).default([]),
-    stage: z.enum(stages).default('new'),
+    stage: jobStageSchema.default('new'),
     favorite: z.boolean().default(false),
     followUp: z.union([z.literal(''), z.iso.date()]).default(''),
     source: z
@@ -290,7 +301,7 @@ export type Job = JobInput & {
   updatedAt: string;
   sourceId: string;
   lastSeenAt: string;
-  history: { stage: string; at: string }[];
+  history: z.infer<typeof jobHistoryEntrySchema>[];
 };
 export type Profile = ProfileInput & {
   id: string;

@@ -4,7 +4,7 @@ import type { ProviderQuota, QuotaWindow } from '../shared/source-tools.js';
 
 const DAY = 86400000;
 export function requestScope(provider: string) {
-  // Jooble issues a separate lifetime allowance for each regional key.
+  // Jooble issues a separate daily allowance for each regional key.
   return provider === 'jooble' && process.env.JOOBLE_API_KEY
     ? createHash('sha256')
         .update(`${process.env.JOOBLE_HOST || 'jooble.org'}|${process.env.JOOBLE_API_KEY}`)
@@ -147,17 +147,19 @@ export function quota(store: Store, provider: string, now = new Date()): Provide
     plan = 'Jooble · Free';
     pricingUrl =
       'https://help.jooble.org/en/support/solutions/articles/60001448238-rest-api-documentation';
+    const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const nextDay = new Date(day.getTime() + DAY);
     windows = [
       window(
-        'всего',
-        500,
-        null,
-        null,
-        '500 запросов на региональный ключ за всё время. Автоматического сброса нет.',
+        'день UTC',
+        100,
+        day,
+        nextDay,
+        '100 запросов в день на региональный ключ. Сброс в 00:00 UTC.',
       ),
     ];
     note =
-      'Считаются все попытки для текущего регионального ключа. Старые записи без идентификатора ключа включены консервативно.';
+      'Считаются все попытки для текущего регионального ключа за день UTC. Записи за этот день без идентификатора ключа включены консервативно.';
   } else if (provider === 'himalayas' || provider === 'jobtech') {
     plan = provider === 'himalayas' ? 'Himalayas · публичный доступ' : 'JobTech · публичный доступ';
     windows = [rolling('минута', 10, 60000)];
