@@ -8,5 +8,6 @@ export const paidOperationSchema = z.strictObject({
   volume: z.number().int().min(1).max(1000),
   parameters: z.record(z.string(), z.json()),
   maxCostUsd: z.number().positive().max(1000),
+  readResults: z.literal(true).optional(),
 });
 export type PaidOperation = z.infer<typeof paidOperationSchema>;

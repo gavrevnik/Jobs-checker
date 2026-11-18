@@ -148,7 +148,9 @@ Observation принимает optional `short_facts: string[]` (до 3 непу
 
 ## Glassdoor: только ручной платный запуск
 
-[Контракт и примеры](../discovery/glassdoor.md): status, quote, authorize, execute, локальная история, явный refresh run metadata и offline normalize экспортированного JSON. Семь MCP tools `jobs_company_paid_*`; запуск только по конкретному запросу, с одноразовым grant и лимитом на стороне Apify. Доступны reviews/interviews, без автоматического dataset download или research import.
+`POST /api/company-research/:companyId/glassdoor-info` принимает `{entries}` и обновляет `company.glassdoor_info` по ID материалов. Ответ содержит `companyId`, `total`, `changed` и `glassdoor_info`. Поле доступно в карточке, профиле компании и JSON-экспорте. [Состав записи](../discovery/glassdoor.md#публичный-поиск-и-запись-в-карточку)
+
+`POST /api/company-research/paid/execute` с `operation.readResults: true` читает датасет после успешного запуска. `POST /api/company-research/paid/runs/:ledgerId/collect` возвращает нормализованные материалы сохранённого запуска, в том числе из локального кэша. Запуск ограничен бюджетом на стороне Apify. Чтение датасета учитывается по отдельному тарифу платформы. [Контракт и примеры](../discovery/glassdoor.md)
 
 ## Культура и команда
 

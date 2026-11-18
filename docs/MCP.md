@@ -114,7 +114,9 @@ Arbeitnow: `jobs_search({providers:["arbeitnow"],country:"gb",execute:false})` �
 
 ## Glassdoor: только ручной платный запуск
 
-[Контракт и примеры](../discovery/glassdoor.md): status, quote, authorize, execute, локальная история, явный refresh run metadata и offline normalize экспортированного JSON. Семь MCP tools `jobs_company_paid_*`; запуск только по конкретному запросу, с одноразовым grant и лимитом на стороне Apify. Доступны reviews/interviews, без автоматического dataset download или research import.
+`jobs_company_paid_execute` с `operation.readResults: true` читает датасет после успешного запуска. `jobs_company_paid_collect` читает датасет сохранённого запуска по `ledgerId` и возвращает нормализованные материалы. Доступны отзывы и интервью. Запуск требует одноразового согласия и лимита на стороне Apify. Чтение учитывается по тарифу платформы, повторные чтения используют локальный кэш. [Контракт и примеры](../discovery/glassdoor.md)
+
+`jobs_company_glassdoor_save({companyId,entries})` сохраняет отобранные отчёты и вопросы в карточку существующей компании. При повторном сохранении тот же ID объединяет ссылки и детали. [Поля и правила отбора](../discovery/glassdoor.md#публичный-поиск-и-запись-в-карточку)
 
 ## Культура и команда
 

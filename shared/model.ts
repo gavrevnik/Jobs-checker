@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { companySourceLinkSchema } from './company-links.js';
 import { companyHiringSchema } from './company-hiring.js';
 import { companyPublicCaseSchema } from './company-public-cases.js';
+import { companyGlassdoorInfoSchema } from './company-glassdoor.js';
 
 export const stages = ['new', 'applied', 'interview', 'offer', 'rejected', 'archived'] as const;
 const storedStageSchema = z.enum([...stages, 'saved']);
@@ -84,6 +85,7 @@ export const companySchema = z.object({
   hiringSources: companyHiringSchema.optional(),
   sourceLinks: z.array(companySourceLinkSchema).max(300).optional(),
   publicCases: z.array(companyPublicCaseSchema).max(500).optional(),
+  glassdoor_info: companyGlassdoorInfoSchema.optional(),
   industry: text.default(''),
   location: text.default(''),
   size: text.default(''),

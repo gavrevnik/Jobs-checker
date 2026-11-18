@@ -50,11 +50,12 @@ try {
     }),
   );
   const listed = await client.listTools();
-  assert.equal(listed.tools.length, 37);
-  for (const suffix of ['status', 'quote', 'authorize', 'execute', 'runs', 'refresh', 'normalize'])
+  assert.equal(listed.tools.length, 39);
+  for (const suffix of ['status', 'quote', 'authorize', 'execute', 'runs', 'refresh', 'collect', 'normalize'])
     assert.ok(listed.tools.some((t) => t.name === `jobs_company_paid_${suffix}`));
   assert.ok(listed.tools.some((t) => t.name === 'jobs_company_research_recalculate'));
   assert.ok(listed.tools.some((t) => t.name === 'jobs_company_research_import'));
+  assert.ok(listed.tools.some((t) => t.name === 'jobs_company_glassdoor_save'));
   const call = async (name: string, args: Record<string, unknown> = {}) => {
     const result = await client.callTool({ name, arguments: args });
     assert.ok(!result.isError, JSON.stringify(result));
@@ -181,6 +182,31 @@ try {
   const criteria = await call('jobs_company_research_criteria');
   assert.equal(criteria.version, registry.version);
   const companyId = job.companyId;
+  const glassdoorUrl = 'https://www.glassdoor.com/Interview/Fixture-Interview-E123-RVW456.htm';
+  const source = { via: 'public_web', url: glassdoorUrl, checkedOn: '2026-11-18' };
+  const interview = {
+    id: 'report:456', kind: 'interview', role: 'Product Analyst',
+    questions: [{ text: 'Design an A/B test.', wording: 'quoted' }], sources: [source],
+  };
+  const savedInterview = await call('jobs_company_glassdoor_save', { companyId, entries: [interview] });
+  assert.equal(savedInterview.total, 1);
+  const enrichment = {
+    id: interview.id, kind: 'interview',
+    assignments: [{ format: 'take_home', details: 'Analyze player cohorts.', timeLimit: 'One week' }],
+    sources: [{ ...source, via: 'apify', runId: 'fixtureRun' }],
+  };
+  const merged = await call('jobs_company_glassdoor_save', { companyId, entries: [enrichment] });
+  assert.equal(merged.total, 1);
+  assert.equal(merged.glassdoor_info[0].role, interview.role);
+  assert.deepEqual(merged.glassdoor_info[0].questions, interview.questions);
+  assert.deepEqual(merged.glassdoor_info[0].assignments, enrichment.assignments);
+  assert.equal(merged.glassdoor_info[0].sources.length, 2);
+  assert.equal((await call('jobs_company_glassdoor_save', { companyId, entries: [enrichment] })).changed, false);
+  const badSource = await client.callTool({ name: 'jobs_company_glassdoor_save', arguments: {
+    companyId, entries: [{ ...interview, sources: [{ ...source, url: 'https://glassdoor.com.example.test/' }] }],
+  } });
+  assert.equal(badSource.isError, true);
+  assert.deepEqual((await call('jobs_company_research_profile', { companyId })).company.glassdoor_info, merged.glassdoor_info);
   const profileContext = await call('jobs_profiles');
   assert.ok(profileContext.selection.core);
   const configured = await call('jobs_selection_update', {
@@ -329,7 +355,7 @@ try {
   );
   assert.equal((await call('jobs_ats_list')).jobs[0].notes, 'Keep this');
   console.log(
-    'MCP check passed: stdio initialization, 37 tools including manual paid research status/guards, professional core/scenarios/assessment history, research preview/import/review/history/recalculate, dry-run, search review, board registration, web plan, ATS preview/import/dedup/update. No external provider calls.',
+    `MCP check passed: stdio initialization, ${listed.tools.length} tools including paid research and dataset collection. No external provider calls.`,
   );
 } finally {
   await client.close();

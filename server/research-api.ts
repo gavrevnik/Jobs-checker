@@ -62,6 +62,10 @@ export function registerResearchApi(app: Express, store: Store) {
     z.strictObject({}).parse(req.body);
     res.json(await paid.refresh(String(req.params.id)));
   });
+  app.post('/api/company-research/paid/runs/:id/collect', async (req, res) => {
+    z.strictObject({}).parse(req.body);
+    res.json(await paid.collect(String(req.params.id)));
+  });
   app.post('/api/company-research/paid/runs/:id/normalize', (req, res) => {
     const { rows } = z
       .strictObject({ rows: z.array(z.record(z.string(), z.json())).max(200) })
@@ -78,6 +82,9 @@ export function registerResearchApi(app: Express, store: Store) {
     const c = context.parse(req.query);
     res.json(research.plan(String(req.params.id), c.country, c.scenarioId ?? c.profileId));
   });
+  app.post('/api/company-research/:id/glassdoor-info', (req, res) =>
+    res.json(store.saveCompanyGlassdoorInfo(String(req.params.id), req.body)),
+  );
   app.get('/api/company-research/:id', (req, res) => {
     const c = context.parse(req.query);
     res.json(research.profile(String(req.params.id), c.country, c.scenarioId ?? c.profileId));

@@ -276,6 +276,16 @@
   color: var(--green);
   overflow-wrap: anywhere;
 }
+.company-glassdoor-info details + details {
+  margin-top: 0.625rem;
+}
+.company-glassdoor-info summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.company-glassdoor-info h4 {
+  margin: 0.625rem 0 0.25rem;
+}
 .preserve-lines {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

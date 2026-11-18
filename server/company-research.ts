@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { SCRAPIFIER_INTERVIEWS_ACTOR } from '@personal-radar/connectors/apify/glassdoor';
 import {
   companyFit,
   fitAssessmentSchema,
@@ -890,27 +891,25 @@ export class CompanyResearch {
         'jobs_monitor_companies',
       ],
       paidRecommendations: gaps
-        .filter((g) => ['P01', 'P07_INTERVIEW', 'B06'].includes(g.criterionId))
+        .filter((g) => ['P07_INTERVIEW', 'B06'].includes(g.criterionId))
         .map((g) => ({
           companyId,
           criterionId: g.criterionId,
           provider: 'apify',
-          actor: g.criterionId === 'B06' ? null : 'memo23/glassdoor-scraper-ppr',
-          operation:
-            g.criterionId === 'P01'
-              ? 'reviews'
-              : g.criterionId === 'P07_INTERVIEW'
-                ? 'interviews'
-                : 'traffic',
-          reason: 'Закрывает существенный пробел; сначала бесплатные первичные источники',
+          actor: g.criterionId === 'B06' ? null : SCRAPIFIER_INTERVIEWS_ACTOR,
+          operation: g.criterionId === 'B06' ? 'traffic' : 'interviews',
+          reason: g.criterionId === 'B06'
+            ? 'Закрывает существенный пробел после проверки бесплатных источников'
+            : 'Помогает дочитать частично доступный отчёт Glassdoor по точному названию роли',
           importance: p.preferences.priority === 'Target' ? 3 : 1,
           estimatedCost: null,
           executionAvailable: g.criterionId !== 'B06' && Boolean(process.env.APIFY_TOKEN?.trim()),
           adapterAvailable: g.criterionId !== 'B06',
           quoteTool: g.criterionId === 'B06' ? null : 'jobs_company_paid_quote',
-          datasetRead: 'disabled',
-          requires:
-            'Актуальный pricing и отдельное согласие: Actor, параметры, компании, объём и максимальная стоимость',
+          datasetRead: g.criterionId === 'B06' ? 'disabled' : 'bounded',
+          requires: g.criterionId === 'B06'
+            ? 'Подключённый адаптер и согласованный бюджет'
+            : 'Профиль работодателя, точный jobTitle, актуальный тариф и согласованный бюджет',
         })),
     };
   }

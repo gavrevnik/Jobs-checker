@@ -35,6 +35,7 @@ import {
 } from '../shared/discovery-review.js';
 import { jobAvailability } from '../shared/target-vacancies.js';
 import { personalPipelineSection } from '../shared/job-pipeline.js';
+import { companyGlassdoorUpdateSchema, mergeCompanyGlassdoorInfo } from '../shared/company-glassdoor.js';
 import type { SourceRun } from '../shared/source-tools.js';
 
 const importedJob = jobSchema.safeExtend({
@@ -213,6 +214,18 @@ export class Store {
       for (const job of this.list<Job>('jobs').filter((j) => j.companyId === id))
         this.writeJob({ ...job, company: company.name });
     return company;
+  }
+  saveCompanyGlassdoorInfo(companyId: string, input: unknown) {
+    const { entries } = companyGlassdoorUpdateSchema.parse(input);
+    return this.transaction(() => {
+      const company = this.get<Company>('companies', companyId);
+      if (!company) throw new Error('Компания не найдена');
+      const previous = company.glassdoor_info ?? [];
+      const glassdoor_info = mergeCompanyGlassdoorInfo(previous, entries);
+      const changed = JSON.stringify(previous) !== JSON.stringify(glassdoor_info);
+      if (changed) this.saveCompany({ ...company, glassdoor_info }, companyId);
+      return { companyId, total: glassdoor_info.length, changed, glassdoor_info };
+    });
   }
   findDuplicate(data: JobInput, sourceId = ''): Job | undefined {
     const url = canonicalUrl(data.url);

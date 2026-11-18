@@ -18,6 +18,7 @@ import { cultureAssessmentSchema } from '../shared/company-culture-fit.js';
 import { fitAssessmentSchema } from '../shared/company-fit.js';
 import { selectionInputSchema } from '../shared/selection-profile.js';
 import { paidOperationSchema } from '../shared/research-paid.js';
+import { companyGlassdoorUpdateSchema } from '../shared/company-glassdoor.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 config({ path: `${root}.env`, quiet: true });
@@ -345,7 +346,7 @@ server.registerTool(
   'jobs_company_research_plan',
   {
     description:
-      'Read coverage/gaps, saved jobMaterials (including closed/stale descriptions with original dates and role scope), prioritised public-source queries, interview follow-ups and paid suggestions. Historical job materials are not current company conditions. Does not call providers. Glassdoor reviews/interviews use jobs_company_paid_* with configured credentials, a hard budget and explicit one-use consent. Other paid Actors remain unavailable.',
+      'Read coverage/gaps, saved jobMaterials (including closed/stale descriptions with original dates and role scope), prioritised public-source queries, interview follow-ups and paid suggestions. Historical job materials are not current company conditions. Does not call providers. For partial public Glassdoor interview reports, use the suggested Scrapifier adapter with the exact role title through jobs_company_paid_*, with configured credentials, a hard budget and explicit one-use consent.',
     inputSchema: {
       companyId: z.string().min(1),
       scenarioId: z.string().max(100).optional(),
@@ -358,6 +359,17 @@ server.registerTool(
   },
   ({ companyId, ...args }) =>
     call(`/company-research/${encodeURIComponent(companyId)}/plan` + query(args)),
+);
+server.registerTool(
+  'jobs_company_glassdoor_save',
+  {
+    description:
+      'Save selected Glassdoor interview cases and role-relevant employee reviews to an existing company’s glassdoor_info. Merge by report/question ID, preserving unrelated cases. Use report:<RVW ID> for the same interview from public web, browser or Apify and question:<QTN ID> only for a standalone question. Include source URLs, checkedOn and the saved Apify runId when applicable. No provider calls.',
+    inputSchema: { companyId: z.string().min(1), ...companyGlassdoorUpdateSchema.shape },
+    annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  ({ companyId, entries }) =>
+    call(`/company-research/${encodeURIComponent(companyId)}/glassdoor-info`, { entries }),
 );
 server.registerTool(
   'jobs_company_research_history',
@@ -441,7 +453,7 @@ server.registerTool(
   'jobs_company_paid_status',
   {
     description:
-      'Read configured paid company-research adapters, credential names and per-run limits. No provider calls. Glassdoor reviews/interviews are explicit-request only; never automatic discovery/monitoring fallback.',
+      'Read configured paid company-research adapters, role filter support, credential names and per-run limits. No provider calls. Scrapifier is primary for role-targeted Glassdoor interviews. Use memo23 only for a separately requested company-wide sample. All runs require explicit consent.',
     inputSchema: {},
     annotations: { readOnlyHint: true },
   },
@@ -451,7 +463,7 @@ server.registerTool(
   'jobs_company_paid_quote',
   {
     description:
-      'Read current public Apify pricing for an exact operation; no Actor run or grant. Glassdoor: actor=memo23/glassdoor-scraper-ppr, operation=reviews|interviews, exactly one companyId, volume 1..200, parameters={companyUrl,startDate?}, maxCostUsd required. Cap covers the run; dataset downloads disabled. Verify employer identity and warn about shared account credits before requesting a run.',
+      'Read current public Apify pricing for an exact operation; no Actor run or grant. Prefer scrapifier/glassdoor-interviews-scraper for interviews by role with {companyUrl,jobTitle}. Use memo23/glassdoor-scraper-ppr only on separate request for company-wide reviews or interviews with {companyUrl,startDate?}; it offers no interview role filter in Jobs Checker. Exactly one companyId, volume 1..200 and maxCostUsd required. Set operation.readResults=true to collect and analyze results. Dataset reads are billed separately at platform rates.',
     inputSchema: { operation: paidOperationSchema },
     annotations: { readOnlyHint: true },
   },
@@ -461,7 +473,7 @@ server.registerTool(
   'jobs_company_paid_authorize',
   {
     description:
-      'Create one-use consent ONLY after the user explicitly requests this paid run with the exact company, Actor, operation, URL, volume, date filter and maximum USD cost. Installation/general company research is not consent. Rechecks current pricing; does not run the Actor.',
+      'Create one-use consent only after the user requests this paid run with the exact company, Actor, operation, URL, volume, role or date filter, and maximum USD cost. Rechecks current pricing without running the Actor.',
     inputSchema: { operation: paidOperationSchema, confirmed: z.literal(true) },
   },
   (args) => call('/company-research/paid/authorize', args),
@@ -470,7 +482,7 @@ server.registerTool(
   'jobs_company_paid_execute',
   {
     description:
-      'Start one explicitly authorized paid run using the same exact operation and unused grantId. Apify hard cap, fixed 1GB/120s, no retries or paid extras. Returns ledgerId and run/dataset Console links, never downloads dataset. Timeout/unknown outcome consumes consent: inspect history and Console, never repeat automatically.',
+      'Start one explicitly authorized paid run using the same exact operation and unused grantId. Apify hard cap, fixed 1GB/120s, no launch retries. With operation.readResults=true, wait briefly and collect normalized results if the run succeeds. For pending/failed collection on a known run, use jobs_company_paid_collect with its ledgerId. If the launch outcome is unknown, inspect history and Console without repeating the launch.',
     inputSchema: { operation: paidOperationSchema, grantId: z.string().uuid() },
     annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
   },
@@ -494,6 +506,16 @@ server.registerTool(
     inputSchema: { ledgerId: z.string().uuid() },
   },
   ({ ledgerId }) => call(`/company-research/paid/runs/${ledgerId}/refresh`, {}),
+);
+server.registerTool(
+  'jobs_company_paid_collect',
+  {
+    description:
+      'Read and normalize the dataset of an existing successful Glassdoor run by its local ledgerId. Use for a user-requested analysis of a saved run or after execute returns pending. May briefly wait for an active run. Reads at most the original volume in one dataset request and reuses a cache on success. Apify storage/transfer costs apply separately from the run cap. No Actor launch or research import.',
+    inputSchema: { ledgerId: z.string().uuid() },
+    annotations: { readOnlyHint: false, openWorldHint: true },
+  },
+  ({ ledgerId }) => call(`/company-research/paid/runs/${ledgerId}/collect`, {}),
 );
 server.registerTool(
   'jobs_company_paid_normalize',

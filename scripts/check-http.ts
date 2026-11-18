@@ -240,16 +240,35 @@ try {
   assert.equal(companyResearch.targetVacancies.total, 0); // HTTP fixture is not a target role
   assert.deepEqual(companyResearch.targetVacancies.jobIds, []);
   assert.equal((await call('/company-research/criteria')).body.version, registry.version);
+  const researchPlan = (await call('/company-research/' + created.body.job.companyId + '/plan')).body;
+  assert.ok(researchPlan.gaps.length);
+  assert.equal(
+    researchPlan.paidRecommendations.find((item: { criterionId: string }) => item.criterionId === 'P07_INTERVIEW')?.actor,
+    'scrapifier/glassdoor-interviews-scraper',
+  );
   assert.ok(
-    (await call('/company-research/' + created.body.job.companyId + '/plan')).body.gaps.length,
+    researchPlan.paidRecommendations.every(
+      (item: { actor: string | null }) => item.actor !== 'memo23/glassdoor-scraper-ppr',
+    ),
   );
   const paidStatus = (await call('/company-research/paid')).body;
-  assert.deepEqual(paidStatus.availableActors, ['memo23/glassdoor-scraper-ppr']);
-  assert.equal(paidStatus.adapters['memo23/glassdoor-scraper-ppr'].configured, false);
-  assert.equal(paidStatus.adapters['memo23/glassdoor-scraper-ppr'].datasetRead, 'disabled');
+  assert.deepEqual(paidStatus.availableActors, [
+    'scrapifier/glassdoor-interviews-scraper',
+    'memo23/glassdoor-scraper-ppr',
+  ]);
+  const scrapifier = paidStatus.adapters['scrapifier/glassdoor-interviews-scraper'];
+  const memo23 = paidStatus.adapters['memo23/glassdoor-scraper-ppr'];
+  assert.deepEqual(scrapifier.commands, ['interviews']);
+  assert.equal(scrapifier.selection, 'primary');
+  assert.equal(scrapifier.interviewRoleFilter, true);
+  assert.equal(memo23.selection, 'explicit_only');
+  assert.equal(memo23.interviewRoleFilter, false);
+  assert.equal(memo23.configured, false);
+  assert.equal(memo23.datasetRead, 'bounded');
   assert.deepEqual((await call('/company-research/paid/runs')).body.runs, []);
   assert.equal((await call('/company-research/paid/authorize', 'POST', {})).status, 400);
   assert.equal((await call('/company-research/paid/execute', 'POST', {})).status, 400);
+  assert.equal((await call('/company-research/paid/runs/invalid/collect', 'POST', {})).status, 400);
   assert.equal((await call('/state')).body.jobs[0].notes, 'Persist me');
   if (process.argv.includes('--live')) {
     const result = await call('/sync', 'POST', {});

@@ -17,6 +17,7 @@ import {
 } from '../shared/model';
 import { External, Logo, Salary } from './components';
 import { CompanySourcesPanel } from './CompanySources';
+import { CompanyGlassdoorInfo } from './CompanyGlassdoorInfo';
 import { countries, locateJob, periodLabels } from './analytics';
 import {
   companyModes,
@@ -413,6 +414,7 @@ export function CompanyDetails({
         <h3>Заметки</h3>
         <p className="preserve-lines">{c.notes || 'Заметок пока нет.'}</p>
       </section>
+      <CompanyGlassdoorInfo entries={c.glassdoor_info} />
       <section>
         <h3>
           Data-driven · {c.dataDrivenScore === null ? 'не оценено' : `${c.dataDrivenScore} / 10`}
